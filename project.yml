@@ -43,7 +43,13 @@ targets:
   StrideWatch:
     type: application
     platform: watchOS
-    sources: [Watch, Shared]
+    sources:
+      - path: Watch
+        excludes: ["Icon/**"]
+      - Shared
+      # the icon, compiled on GitHub (watch-icon workflow): actool needs a watchOS runtime
+      - path: Watch/Icon/Assets.car
+        buildPhase: resources
     entitlements:
       path: Watch/StrideWatch.entitlements
       properties:
@@ -53,10 +59,10 @@ targets:
       properties:
         # keeps the app running during the workout with the wrist down
         WKBackgroundModes: [workout-processing]
+        CFBundleIcons: { CFBundlePrimaryIcon: { CFBundleIconName: AppIcon } }
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.sstrabe.stride.watchkitapp
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: Stride
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: dev.sstrabe.stride
         INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: NO

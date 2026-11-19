@@ -62,4 +62,7 @@ it isn't used.
 
 ## Icon
 
-`Design/icon.svg` (source), rendered to `Design/icon-1024.png` with `rsvg-convert -w 1024 -h 1024 -b "#E5341D"` (opaque: iOS refuses alpha), copied into both `Assets.xcassets/AppIcon.appiconset` as a single 1024 px icon.
+`Design/icon.svg` (source), rendered to `Design/icon-1024.png` with `rsvg-convert -w 1024 -h 1024 -b "#E5341D"` (opaque: iOS refuses alpha), copied into `Phone/Assets.xcassets` and `Design/WatchIcon.xcassets` as a single 1024 px icon. The Watch
+catalog is compiled by the `watch-icon` workflow on GitHub (actool needs a watchOS simulator
+runtime, which the build Mac doesn't keep): run it, download its artifact, and commit `Assets.car` to
+`Watch/Icon/`.
