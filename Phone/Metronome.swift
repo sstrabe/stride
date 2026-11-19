@@ -12,6 +12,13 @@ final class Metronome: @unchecked Sendable {
     private var sampleRate: Double = 44_100
     private var nextBeat: Double = 0        // in player sample time
     private var running = false
+    private var beats = 0
+    private var firstBeat: Double = -1, lastBeat: Double = -1
+
+    /// For the self-test: beats scheduled and the span between the first and last (seconds).
+    var stats: (beats: Int, span: Double, sampleRate: Double) {
+        queue.sync { (beats, firstBeat < 0 ? 0 : (lastBeat - firstBeat) / sampleRate, sampleRate) }
+    }
 
     private let lock = NSLock()
     private var _bpm: Double = 170
@@ -46,6 +53,7 @@ final class Metronome: @unchecked Sendable {
             try s.setActive(true)
             try startEngine()
             running = true
+            beats = 0; firstBeat = -1; lastBeat = -1
             let t = DispatchSource.makeTimerSource(queue: queue)
             t.schedule(deadline: .now(), repeating: .milliseconds(40), leeway: .milliseconds(5))
             t.setEventHandler { [weak self] in self?.scheduleAhead() }
@@ -104,6 +112,9 @@ final class Metronome: @unchecked Sendable {
         while nextBeat < horizon {
             let at = AVAudioTime(sampleTime: AVAudioFramePosition(nextBeat.rounded()), atRate: sampleRate)
             player.scheduleBuffer(click, at: at, options: [], completionHandler: nil)
+            beats += 1
+            if firstBeat < 0 { firstBeat = nextBeat }
+            lastBeat = nextBeat
             nextBeat += 60.0 / bpm * sampleRate
         }
     }

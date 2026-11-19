@@ -6,6 +6,8 @@ struct StrideApp: App {
     // system hands us a session from the Watch.
     @State private var run = RunModel()
 
+    init() { if SelfTest.requested { SelfTest.run() } }
+
     var body: some Scene {
         WindowGroup {
             ContentView().environment(run)
