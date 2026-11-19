@@ -3,14 +3,14 @@
 name: Stride
 options:
   bundleIdPrefix: dev.sstrabe
-  deploymentTarget: { iOS: "18.0", watchOS: "11.0" }
+  deploymentTarget: { iOS: "26.0", watchOS: "11.0" }   # iOS 26: workout sessions on iPhone
 settings:
   base:
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: YES
     MARKETING_VERSION: "0.1"
     CURRENT_PROJECT_VERSION: "1"
-    SWIFT_VERSION: "6.0"
+    SWIFT_VERSION: "5.0"
 targets:
   Stride:
     type: application
@@ -64,8 +64,7 @@ targets:
   StrideTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [Tests]
-    dependencies: [{ target: Stride }]
+    sources: [Tests, Shared]          # logic tests on the shared maths, no host app
 schemes:
   Stride:
     build: { targets: { Stride: all } }

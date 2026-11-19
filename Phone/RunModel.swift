@@ -1,0 +1,334 @@
+import Foundation
+import CoreLocation
+import CoreMotion
+import Observation
+
+/// One run: GPS + pedometer -> step length -> click tempo; plus the Health workout and the Watch.
+@MainActor
+@Observable
+final class RunModel: NSObject {
+    enum State: Equatable { case idle, starting, running, finishing }
+
+    // MARK: settings (kept in UserDefaults)
+    var targetSeconds: Double = 502 { didSet { saveSettings(); targetChanged() } }
+    var unit: DistanceUnit = .mile { didSet { if oldValue != unit && !loading { convertTarget(from: oldValue) }; saveSettings() } }
+    var minCadence: Double = 150 { didSet { saveSettings(); rangeChanged() } }
+    var maxCadence: Double = 200 { didSet { saveSettings(); rangeChanged() } }
+    var startCadence: Double = 170 { didSet { saveSettings() } }
+    var volume: Double = 0.8 { didSet { metronome.volume = Float(volume); saveSettings() } }
+    var useWatch: Bool = false { didSet { saveSettings() } }
+
+    // MARK: live
+    private(set) var state: State = .idle
+    private(set) var clickCadence: Double = 170
+    private(set) var wantedCadence: Double?
+    private(set) var stepLength: Double?
+    private(set) var measuredCadence: Double?
+    private(set) var currentSpeed: Double?
+    private(set) var distance: Double = 0
+    private(set) var startDate: Date?
+    private(set) var heartRate: Double?
+    private(set) var gpsGood = false
+    private(set) var recordingOn: String = ""
+    private(set) var message: String?
+    private(set) var previewing = false
+    var holding = false { didSet { if holding != oldValue { health.send(.setHold(holding)) } } }
+
+    var targetSpeed: Double { Pace.speed(secondsPer: targetSeconds, unit: unit) }
+    var currentSecondsPerUnit: Double? { currentSpeed.flatMap { Pace.seconds(speed: $0, unit: unit) } }
+
+    // MARK: machinery
+    let health = Health()
+    private let metronome = Metronome()
+    private let location = CLLocationManager()
+    private let pedometer = CMPedometer()
+    private var estimator = StepLengthEstimator()
+    private var governor = CadenceGovernor(targetSpeed: 3.2, startCadence: 170)
+    private var tick: Timer?
+    private var lastLocation: CLLocation?
+    private var lastGoodFix: Date?
+    private var gpsDistance: Double = 0
+    private var pedoSteps: Double = 0
+    private var pedoDistance: Double = 0
+    private var routeBuffer: [CLLocation] = []
+    private var strides: [(Date, Double)] = []
+    private var strideBucket: [Double] = []
+    private var lastStrideMinute: Date?
+    private var lastStatusSent = Date.distantPast
+    private let defaults = UserDefaults.standard
+
+    override init() {
+        super.init()
+        loadSettings()
+        clickCadence = startCadence
+        governor = CadenceGovernor(targetSpeed: targetSpeed, startCadence: startCadence, range: minCadence...maxCadence)
+        metronome.volume = Float(volume)
+        location.delegate = self
+        location.activityType = .fitness
+        location.desiredAccuracy = kCLLocationAccuracyBest
+        location.distanceFilter = kCLDistanceFilterNone
+        health.onMessage = { [weak self] m in self?.handle(m) }
+        health.onHeartRate = { [weak self] hr in self?.heartRate = hr }
+        health.onMirrorStarted = { [weak self] in self?.mirrorStarted() }
+        health.onMirrorEnded = { [weak self] in self?.mirrorEnded() }
+    }
+
+    func prepare() async {
+        if location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
+        await health.requestAuthorization()
+    }
+
+    // MARK: start / stop
+
+    func start() async {
+        guard state == .idle else { return }
+        state = .starting
+        message = nil
+        stopPreview()
+        resetLive()
+        if useWatch && Health.available {
+            do {
+                try await health.startOnWatch()
+                recordingOn = "Waiting for Apple Watch…"
+                // mirrorStarted() takes it from here; fall back if the Watch doesn't answer
+                try? await Task.sleep(for: .seconds(12))
+                if state == .starting && !health.isMirrored {
+                    message = "Apple Watch didn't answer; recording on iPhone."
+                    await startLocal()
+                }
+            } catch {
+                message = "Apple Watch: \(error.localizedDescription). Recording on iPhone."
+                await startLocal()
+            }
+        } else {
+            await startLocal()
+        }
+    }
+
+    private func startLocal() async {
+        let now = Date()
+        if Health.available {
+            do {
+                try await health.startOnPhone(at: now)
+                recordingOn = "Recording on iPhone"
+            } catch {
+                recordingOn = "Not recording in Health"
+                message = "Health: \(error.localizedDescription)"
+            }
+        } else {
+            recordingOn = "Not recording in Health"
+        }
+        beginSensors(at: now)
+    }
+
+    private func mirrorStarted() {
+        // The Watch runs the workout (started from here or on the Watch itself).
+        if state == .running && !health.isMirrored { return }
+        recordingOn = "Recording on Apple Watch"
+        if state != .running { resetLive(); beginSensors(at: health.builder?.startDate ?? Date()) }
+        sendStatus(force: true)
+    }
+
+    private func mirrorEnded() {
+        guard state == .running else { return }
+        Task { await stop() }
+    }
+
+    private func beginSensors(at date: Date) {
+        startDate = date
+        state = .running
+        location.allowsBackgroundLocationUpdates = true
+        location.showsBackgroundLocationIndicator = true
+        location.startUpdatingLocation()
+        if CMPedometer.isStepCountingAvailable() {
+            pedometer.startUpdates(from: date) { [weak self] data, _ in
+                guard let data else { return }
+                let steps = data.numberOfSteps.doubleValue
+                let dist = data.distance?.doubleValue
+                Task { @MainActor in self?.pedometerUpdate(steps: steps, distance: dist) }
+            }
+        }
+        governor = CadenceGovernor(targetSpeed: targetSpeed, startCadence: startCadence, range: minCadence...maxCadence)
+        clickCadence = governor.cadence
+        metronome.bpm = clickCadence
+        do { try metronome.start() } catch { message = "Audio: \(error.localizedDescription)" }
+        tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.update() }
+        }
+    }
+
+    func stop(discard: Bool = false) async {
+        guard state == .running || state == .starting else { return }
+        state = .finishing
+        let end = Date()
+        tick?.invalidate(); tick = nil
+        metronome.stop()
+        location.stopUpdatingLocation()
+        location.allowsBackgroundLocationUpdates = false
+        pedometer.stopUpdates()
+        flushRoute()
+        flushStride(force: true)
+        if discard {
+            health.discard()
+            recordingOn = "Discarded"
+        } else {
+            recordingOn = await health.finish(at: end, summary: .init(distance: distance, strides: strides,
+                                                                      targetSecondsPerUnit: targetSeconds, unit: unit))
+        }
+        state = .idle
+    }
+
+    // MARK: preview (click at the start tempo without a run)
+
+    func togglePreview() {
+        if previewing { stopPreview(); return }
+        guard state == .idle else { return }
+        metronome.bpm = startCadence
+        do { try metronome.start(); previewing = true } catch { message = "Audio: \(error.localizedDescription)" }
+    }
+
+    private func stopPreview() {
+        guard previewing else { return }
+        metronome.stop(); previewing = false
+    }
+
+    // MARK: sensor input
+
+    private func pedometerUpdate(steps: Double, distance pd: Double?) {
+        pedoSteps = steps
+        if let pd { pedoDistance = pd }
+        // GPS distance when the fix is good, the pedometer's own estimate otherwise (treadmill, tunnels)
+        let gps = lastGoodFix.map { Date().timeIntervalSince($0) < 5 } ?? false
+        let sample = StepLengthEstimator.Sample(time: Date().timeIntervalSinceReferenceDate,
+                                                distance: gps ? gpsDistance : pedoDistance,
+                                                steps: steps, source: gps ? .gps : .pedometer)
+        estimator.add(sample)
+        update()
+    }
+
+    private func locationUpdate(_ locs: [CLLocation]) {
+        for l in locs {
+            guard l.horizontalAccuracy >= 0, l.horizontalAccuracy <= 25 else { continue }
+            if let prev = lastLocation {
+                let d = l.distance(from: prev), dt = l.timestamp.timeIntervalSince(prev.timestamp)
+                guard dt > 0 else { continue }
+                if d / dt < 12 { gpsDistance += d }      // ignore jumps faster than a sprinter
+            }
+            lastLocation = l
+            lastGoodFix = Date()
+            routeBuffer.append(l)
+        }
+        gpsGood = lastGoodFix.map { Date().timeIntervalSince($0) < 5 } ?? false
+        if routeBuffer.count >= 20 { flushRoute() }
+    }
+
+    private func flushRoute() {
+        guard !routeBuffer.isEmpty else { return }
+        health.addRoute(routeBuffer)
+        routeBuffer.removeAll()
+    }
+
+    // MARK: the loop (1 Hz)
+
+    private func update() {
+        guard state == .running else { return }
+        gpsGood = lastGoodFix.map { Date().timeIntervalSince($0) < 5 } ?? false
+        stepLength = estimator.stepLength
+        measuredCadence = estimator.cadence
+        currentSpeed = estimator.speed ?? (gpsGood ? lastLocation.map { max(0, $0.speed) } : nil)
+        distance = gpsDistance > 0 ? max(gpsDistance, 0) : pedoDistance
+        wantedCadence = governor.desired(stepLength: stepLength)
+        clickCadence = governor.update(stepLength: stepLength, time: Date().timeIntervalSinceReferenceDate, hold: holding)
+        metronome.bpm = clickCadence
+        if let s = stepLength { strideBucket.append(s) }
+        flushStride(force: false)
+        sendStatus(force: false)
+    }
+
+    /// One running-stride-length sample per minute for Health.
+    private func flushStride(force: Bool) {
+        let now = Date()
+        if lastStrideMinute == nil { lastStrideMinute = now }
+        guard let last = lastStrideMinute, force || now.timeIntervalSince(last) >= 60 else { return }
+        if !strideBucket.isEmpty { strides.append((now, strideBucket.reduce(0, +) / Double(strideBucket.count))) }
+        strideBucket.removeAll(); lastStrideMinute = now
+    }
+
+    private func resetLive() {
+        estimator.reset()
+        gpsDistance = 0; pedoSteps = 0; pedoDistance = 0; distance = 0
+        lastLocation = nil; lastGoodFix = nil
+        stepLength = nil; measuredCadence = nil; currentSpeed = nil; wantedCadence = nil; heartRate = nil
+        strides.removeAll(); strideBucket.removeAll(); lastStrideMinute = nil
+        routeBuffer.removeAll()
+        holding = false
+    }
+
+    // MARK: settings changes
+
+    private func targetChanged() {
+        governor.targetSpeed = targetSpeed
+        if state == .idle { clickCadence = startCadence }
+        sendStatus(force: true)
+    }
+
+    private func rangeChanged() {
+        guard minCadence < maxCadence else { return }
+        governor.range = minCadence...maxCadence
+    }
+
+    private func convertTarget(from old: DistanceUnit) {
+        targetSeconds = (targetSeconds * unit.meters / old.meters).rounded()
+    }
+
+    // MARK: Watch
+
+    private func handle(_ m: RemoteMessage) {
+        switch m {
+        case .setTarget(let s): targetSeconds = min(max(s, 150), 1200)
+        case .setHold(let h): holding = h
+        case .heartRate(let hr): heartRate = hr
+        case .status: break
+        }
+    }
+
+    private func sendStatus(force: Bool) {
+        guard health.isMirrored, force || Date().timeIntervalSince(lastStatusSent) >= 2 else { return }
+        lastStatusSent = Date()
+        health.send(.status(RunStatus(targetSecondsPerUnit: targetSeconds, unit: unit, clickCadence: clickCadence,
+                                      measuredCadence: measuredCadence, currentSecondsPerUnit: currentSecondsPerUnit,
+                                      stepLength: stepLength, distance: distance,
+                                      elapsed: startDate.map { Date().timeIntervalSince($0) } ?? 0, holding: holding)))
+    }
+
+    // MARK: persistence
+
+    @ObservationIgnored private var loading = false
+
+    private func loadSettings() {
+        loading = true; defer { loading = false }
+        let d = defaults
+        if d.object(forKey: "targetSeconds") != nil { targetSeconds = d.double(forKey: "targetSeconds") }
+        if let u = d.string(forKey: "unit").flatMap(DistanceUnit.init(rawValue:)) { unit = u }
+        if d.object(forKey: "minCadence") != nil { minCadence = d.double(forKey: "minCadence") }
+        if d.object(forKey: "maxCadence") != nil { maxCadence = d.double(forKey: "maxCadence") }
+        if d.object(forKey: "startCadence") != nil { startCadence = d.double(forKey: "startCadence") }
+        if d.object(forKey: "volume") != nil { volume = d.double(forKey: "volume") }
+        useWatch = d.bool(forKey: "useWatch")
+    }
+
+    private func saveSettings() {
+        guard !loading else { return }
+        let d = defaults
+        d.set(targetSeconds, forKey: "targetSeconds"); d.set(unit.rawValue, forKey: "unit")
+        d.set(minCadence, forKey: "minCadence"); d.set(maxCadence, forKey: "maxCadence")
+        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(useWatch, forKey: "useWatch")
+    }
+}
+
+extension RunModel: CLLocationManagerDelegate {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        Task { @MainActor in self.locationUpdate(locations) }
+    }
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+}
