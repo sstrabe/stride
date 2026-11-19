@@ -59,3 +59,7 @@ build(repo="https://github.com/sstrabe/stride", sdk="auto", install="default", l
 
 Free Personal Team: HealthKit works. The clinical-records key (`healthkit.access`) is refused, so
 it isn't used.
+
+## Icon
+
+`Design/icon.svg` (source), rendered to `Design/icon-1024.png` with `rsvg-convert -w 1024 -h 1024 -b "#E5341D"` (opaque: iOS refuses alpha), copied into both `Assets.xcassets/AppIcon.appiconset` as a single 1024 px icon.
