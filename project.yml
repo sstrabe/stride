@@ -15,7 +15,15 @@ targets:
   Stride:
     type: application
     platform: iOS
-    sources: [Phone, Shared]
+    sources:
+      - path: Phone
+        excludes: ["Icon/**"]
+      - Shared
+      # the icon, compiled on GitHub (icons workflow): actool needs a simulator runtime
+      - path: Phone/Icon/Assets.car
+        buildPhase: resources
+      - path: Phone/Icon/AppIcon60x60@2x.png
+        buildPhase: resources
     dependencies:
       - target: StrideWatch
     entitlements:
@@ -27,10 +35,10 @@ targets:
       properties:
         # audio: the click keeps playing with the screen off; location: GPS pace in the pocket
         UIBackgroundModes: [audio, location]
+        CFBundleIcons: { CFBundlePrimaryIcon: { CFBundleIconName: AppIcon, CFBundleIconFiles: [AppIcon60x60] } }
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.sstrabe.stride
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_CFBundleDisplayName: Stride
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
