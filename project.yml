@@ -22,7 +22,6 @@ targets:
       path: Phone/Stride.entitlements
       properties:
         com.apple.developer.healthkit: true
-        com.apple.developer.healthkit.access: []
     info:
       path: Phone/Info.plist
       properties:
@@ -48,7 +47,6 @@ targets:
       path: Watch/StrideWatch.entitlements
       properties:
         com.apple.developer.healthkit: true
-        com.apple.developer.healthkit.access: []
     info:
       path: Watch/Info.plist
       properties:
