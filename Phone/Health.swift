@@ -61,6 +61,8 @@ final class Health: NSObject {
     }
 
     private func attachMirrored(_ s: HKWorkoutSession) {
+        // already recording on the iPhone: keep that workout, don't take over the Watch's
+        guard session == nil || isMirrored else { return }
         session = s
         isMirrored = true
         s.delegate = self
