@@ -76,7 +76,14 @@ struct ContentView: View {
                     Text("measuring your stride…").font(.subheadline).foregroundStyle(.secondary)
                 }
             } else {
-                Text("starts at \(Int(run.startCadence)), then follows your stride").font(.subheadline).foregroundStyle(.secondary)
+                Group {
+                    if let h = run.healthStride {
+                        Text("your usual \(String(format: "%.2f", h.stride)) m step at this pace (Apple Health); then follows your stride")
+                    } else {
+                        Text("starts at \(Int(run.startCadence)), then follows your stride")
+                    }
+                }
+                .font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity)
@@ -220,7 +227,7 @@ struct SettingsView: View {
                     Stepper("Never below \(Int(run.minCadence)) spm", value: $run.minCadence, in: 100...(run.maxCadence - 5), step: 1)
                     Stepper("Never above \(Int(run.maxCadence)) spm", value: $run.maxCadence, in: (run.minCadence + 5)...240, step: 1)
                 } header: { Text("Click tempo") } footer: {
-                    Text("The click starts at the start tempo. Once your stride is measured it moves to the cadence your target pace needs at that stride, at most 3 spm per 10 seconds.")
+                    Text("The click starts at the cadence your target pace needs at your usual step length in Apple Health (stride length and speed from your past runs); without Health data, at the start tempo. Once your stride is measured it moves to the cadence your target pace needs at that stride, at most 3 spm per 10 seconds.")
                 }
                 Section {
                     Toggle("Record on Apple Watch", isOn: $run.useWatch)

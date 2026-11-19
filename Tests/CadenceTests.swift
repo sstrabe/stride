@@ -81,3 +81,36 @@ import Foundation
     }
     #expect(back == s)
 }
+
+@Test func strideFitBySpeed() {
+    // stride = 0.5 + 0.2 × speed, speeds 2.5…4.4 m/s
+    let pts = (0..<40).map { i -> StrideFit.Point in
+        let v = 2.5 + Double(i) * 0.05
+        return .init(speed: v, stride: 0.5 + 0.2 * v)
+    }
+    let e = StrideFit.estimate(at: 3.206, points: pts)!
+    #expect(e.bySpeed)
+    #expect(abs(e.stride - (0.5 + 0.2 * 3.206)) < 1e-9)
+    // far outside the speeds run: clamped to max + 0.5
+    let far = StrideFit.estimate(at: 6.9, points: pts)!
+    #expect(abs(far.stride - (0.5 + 0.2 * (2.5 + 39 * 0.05 + 0.5))) < 1e-9)
+}
+
+@Test func strideFitFallsBackToMedian() {
+    // all at one speed: no line, median instead
+    let pts = [1.0, 1.1, 1.2, 1.05, 1.15].map { StrideFit.Point(speed: 3, stride: $0) }
+    let e = StrideFit.estimate(at: 3.5, points: pts)!
+    #expect(!e.bySpeed)
+    #expect(abs(e.stride - 1.1) < 1e-9)
+    #expect(StrideFit.estimate(at: 3, points: Array(pts.prefix(2))) == nil)       // too few
+    #expect(StrideFit.estimate(at: 3, points: [], strides: [1.0, 1.2, 1.1, 5.0, 1.3, 0.9])!.stride == 1.1)
+}
+
+@Test func stridePairing() {
+    let t0 = Date(timeIntervalSinceReferenceDate: 0)
+    let strides = [(t0, 1.1), (t0.addingTimeInterval(100), 1.2), (t0.addingTimeInterval(1000), 1.3)]
+    let speeds = [(t0.addingTimeInterval(110), 3.5), (t0.addingTimeInterval(5), 3.0)]
+    let r = StrideFit.pair(strides: strides, speeds: speeds)
+    #expect(r.points == [.init(speed: 3.0, stride: 1.1), .init(speed: 3.5, stride: 1.2)])
+    #expect(r.unpaired == [1.3])
+}

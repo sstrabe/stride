@@ -15,7 +15,11 @@ click (steps/min) = target speed (m/s) × 60 ÷ step length (m)
   iPhone's pedometer (CoreMotion).
 - **The click moves gently**: at most 0.3 spm per second (3 spm per 10 s), within 150–200 spm
   (adjustable). The click shapes how you run, so a fast-moving tempo would chase its own effect.
-  It starts at 170 spm (adjustable) until the first measurement. **Hold this tempo** freezes it.
+  Until the first measurement it starts at the cadence the target pace needs at your **usual step
+  length from Apple Health**: running stride length and running speed samples from the last 90 days
+  (the Watch writes both on every run), paired by time, with a line fitted through stride against
+  speed (`Shared/StrideFit.swift`). With little data it uses the median stride, and with none the
+  start tempo from Settings (170 spm). Stride's own runs write both values back each minute. **Hold this tempo** freezes it.
 - **Audio**: AVAudioEngine schedules every click at an exact sample time, a little ahead of the
   playhead. The session mixes with other audio (music at full volume) and keeps playing with the
   screen off.

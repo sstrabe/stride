@@ -45,8 +45,29 @@ final class Health: NSObject {
         let read: Set<HKObjectType> = [
             .workoutType(), HKQuantityType(.heartRate), HKQuantityType(.distanceWalkingRunning),
             HKQuantityType(.activeEnergyBurned),
+            HKQuantityType(.runningStrideLength), HKQuantityType(.runningSpeed),
         ]
         try? await store.requestAuthorization(toShare: share, read: read)
+    }
+
+    // MARK: past runs
+
+    /// Running stride length and speed samples from the last `days` days (Apple Watch writes both
+    /// during runs), as (sample midpoint, value).
+    func recentStrideAndSpeed(days: Int = 90) async -> (strides: [(Date, Double)], speeds: [(Date, Double)]) {
+        guard Self.available else { return ([], []) }
+        let since = Calendar.current.date(byAdding: .day, value: -days, to: Date())!
+        let pred = HKQuery.predicateForSamples(withStart: since, end: nil)
+        func fetch(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit) async -> [(Date, Double)] {
+            let d = HKSampleQueryDescriptor(predicates: [.quantitySample(type: HKQuantityType(id), predicate: pred)],
+                                            sortDescriptors: [SortDescriptor(\.startDate, order: .reverse)], limit: 20_000)
+            let r = (try? await d.result(for: store)) ?? []
+            return r.map { ($0.startDate.addingTimeInterval($0.endDate.timeIntervalSince($0.startDate) / 2),
+                            $0.quantity.doubleValue(for: unit)) }
+        }
+        async let st = fetch(.runningStrideLength, .meter())
+        async let sp = fetch(.runningSpeed, HKUnit.meter().unitDivided(by: .second()))
+        return await (st, sp)
     }
 
     // MARK: Watch
@@ -96,7 +117,7 @@ final class Health: NSObject {
         Task { try? await rb.insertRouteData(locations) }
     }
 
-    struct Summary { var distance: Double; var strides: [(Date, Double)]; var targetSecondsPerUnit: Double; var unit: DistanceUnit }
+    struct Summary { var distance: Double; var strides: [(Date, Double)]; var speeds: [(Date, Double)]; var targetSecondsPerUnit: Double; var unit: DistanceUnit }
 
     /// Ends the run. Returns a line for the UI.
     func finish(at end: Date, summary: Summary) async -> String {
@@ -123,6 +144,11 @@ final class Health: NSObject {
             for (date, length) in summary.strides where date > start && date <= end {
                 let q = HKQuantity(unit: .meter(), doubleValue: length)
                 samples.append(HKQuantitySample(type: strideType, quantity: q, start: date.addingTimeInterval(-60), end: date))
+            }
+            let speedType = HKQuantityType(.runningSpeed)
+            for (date, v) in summary.speeds where date > start && date <= end && v > 0 {
+                let q = HKQuantity(unit: HKUnit.meter().unitDivided(by: .second()), doubleValue: v)
+                samples.append(HKQuantitySample(type: speedType, quantity: q, start: date.addingTimeInterval(-60), end: date))
             }
             if !samples.isEmpty { try await b.addSamples(samples) }
             try await b.addMetadata([

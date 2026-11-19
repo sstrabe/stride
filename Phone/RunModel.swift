@@ -14,7 +14,7 @@ final class RunModel: NSObject {
     var unit: DistanceUnit = .mile { didSet { if oldValue != unit && !loading { convertTarget(from: oldValue) }; saveSettings() } }
     var minCadence: Double = 150 { didSet { saveSettings(); rangeChanged() } }
     var maxCadence: Double = 200 { didSet { saveSettings(); rangeChanged() } }
-    var startCadence: Double = 170 { didSet { saveSettings() } }
+    var startCadence: Double = 170 { didSet { saveSettings(); targetChanged() } }
     var volume: Double = 0.8 { didSet { metronome.volume = Float(volume); saveSettings() } }
     var useWatch: Bool = false { didSet { saveSettings() } }
 
@@ -35,6 +35,18 @@ final class RunModel: NSObject {
     var holding = false { didSet { if holding != oldValue { health.send(.setHold(holding)) } } }
 
     var targetSpeed: Double { Pace.speed(secondsPer: targetSeconds, unit: unit) }
+
+    /// Your usual step length at the target speed, from past runs in Apple Health.
+    private(set) var healthStride: StrideFit.Estimate?
+    @ObservationIgnored private var healthPoints: [StrideFit.Point] = []
+    @ObservationIgnored private var healthUnpaired: [Double] = []
+
+    /// The tempo a run starts at: the target speed at your usual stride from Health, else the
+    /// start tempo from Settings.
+    var openingCadence: Double {
+        guard let h = healthStride else { return startCadence }
+        return min(max(Cadence.required(speed: targetSpeed, stepLength: h.stride), minCadence), maxCadence)
+    }
     var currentSecondsPerUnit: Double? { currentSpeed.flatMap { Pace.seconds(speed: $0, unit: unit) } }
 
     // MARK: machinery
@@ -52,6 +64,8 @@ final class RunModel: NSObject {
     private var pedoDistance: Double = 0
     private var routeBuffer: [CLLocation] = []
     private var strides: [(Date, Double)] = []
+    private var speeds: [(Date, Double)] = []
+    private var speedBucket: [Double] = []
     private var strideBucket: [Double] = []
     private var lastStrideMinute: Date?
     private var lastStatusSent = Date.distantPast
@@ -76,6 +90,19 @@ final class RunModel: NSObject {
     func prepare() async {
         if location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
         await health.requestAuthorization()
+        await loadHealthStride()
+    }
+
+    func loadHealthStride() async {
+        let (st, sp) = await health.recentStrideAndSpeed()
+        let r = StrideFit.pair(strides: st, speeds: sp)
+        healthPoints = r.points; healthUnpaired = r.unpaired
+        refitStride()
+    }
+
+    private func refitStride() {
+        healthStride = StrideFit.estimate(at: targetSpeed, points: healthPoints, strides: healthUnpaired)
+        if state == .idle && !previewing { clickCadence = openingCadence }
     }
 
     // MARK: start / stop
@@ -148,7 +175,7 @@ final class RunModel: NSObject {
                 Task { @MainActor in self?.pedometerUpdate(steps: steps, distance: dist) }
             }
         }
-        governor = CadenceGovernor(targetSpeed: targetSpeed, startCadence: startCadence, range: minCadence...maxCadence)
+        governor = CadenceGovernor(targetSpeed: targetSpeed, startCadence: openingCadence, range: minCadence...maxCadence)
         clickCadence = governor.cadence
         metronome.bpm = clickCadence
         do { try metronome.start() } catch { message = "Audio: \(error.localizedDescription)" }
@@ -172,7 +199,7 @@ final class RunModel: NSObject {
             health.discard()
             recordingOn = "Discarded"
         } else {
-            recordingOn = await health.finish(at: end, summary: .init(distance: distance, strides: strides,
+            recordingOn = await health.finish(at: end, summary: .init(distance: distance, strides: strides, speeds: speeds,
                                                                       targetSecondsPerUnit: targetSeconds, unit: unit))
         }
         state = .idle
@@ -183,7 +210,7 @@ final class RunModel: NSObject {
     func togglePreview() {
         if previewing { stopPreview(); return }
         guard state == .idle else { return }
-        metronome.bpm = startCadence
+        metronome.bpm = openingCadence
         do { try metronome.start(); previewing = true } catch { message = "Audio: \(error.localizedDescription)" }
     }
 
@@ -241,6 +268,7 @@ final class RunModel: NSObject {
         clickCadence = governor.update(stepLength: stepLength, time: Date().timeIntervalSinceReferenceDate, hold: holding)
         metronome.bpm = clickCadence
         if let s = stepLength { strideBucket.append(s) }
+        if let v = currentSpeed, v > 0.5 { speedBucket.append(v) }
         flushStride(force: false)
         sendStatus(force: false)
     }
@@ -251,7 +279,8 @@ final class RunModel: NSObject {
         if lastStrideMinute == nil { lastStrideMinute = now }
         guard let last = lastStrideMinute, force || now.timeIntervalSince(last) >= 60 else { return }
         if !strideBucket.isEmpty { strides.append((now, strideBucket.reduce(0, +) / Double(strideBucket.count))) }
-        strideBucket.removeAll(); lastStrideMinute = now
+        if !speedBucket.isEmpty { speeds.append((now, speedBucket.reduce(0, +) / Double(speedBucket.count))) }
+        strideBucket.removeAll(); speedBucket.removeAll(); lastStrideMinute = now
     }
 
     private func resetLive() {
@@ -259,7 +288,7 @@ final class RunModel: NSObject {
         gpsDistance = 0; pedoSteps = 0; pedoDistance = 0; distance = 0
         lastLocation = nil; lastGoodFix = nil
         stepLength = nil; measuredCadence = nil; currentSpeed = nil; wantedCadence = nil; heartRate = nil
-        strides.removeAll(); strideBucket.removeAll(); lastStrideMinute = nil
+        strides.removeAll(); strideBucket.removeAll(); speeds.removeAll(); speedBucket.removeAll(); lastStrideMinute = nil
         routeBuffer.removeAll()
         holding = false
     }
@@ -268,7 +297,7 @@ final class RunModel: NSObject {
 
     private func targetChanged() {
         governor.targetSpeed = targetSpeed
-        if state == .idle { clickCadence = startCadence }
+        refitStride()
         sendStatus(force: true)
     }
 
