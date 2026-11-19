@@ -1,0 +1,21 @@
+# Compiles the icons (Design/*Icon.xcassets) into {Phone,Watch}/Icon/Assets.car. actool needs a
+# simulator runtime for that, which the build Mac doesn't keep (disk); GitHub's runners
+# have one. Run it after changing the icon, then commit the artifact (see README "Icon").
+name: icons
+on: workflow_dispatch
+jobs:
+  compile:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p out/Phone out/Watch
+          xcrun actool Design/WatchIcon.xcassets --compile out/Watch --platform watchos \
+            --minimum-deployment-target 11.0 --target-device watch --app-icon AppIcon \
+            --output-partial-info-plist out/Watch/partial.plist --output-format human-readable-text
+          xcrun actool Design/PhoneIcon.xcassets --compile out/Phone --platform iphoneos \
+            --minimum-deployment-target 26.0 --target-device iphone --app-icon AppIcon \
+            --output-partial-info-plist out/Phone/partial.plist --output-format human-readable-text
+          ls -laR out; plutil -p out/Phone/partial.plist
+      - uses: actions/upload-artifact@v4
+        with: { name: icons, path: out }
