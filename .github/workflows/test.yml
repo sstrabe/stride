@@ -1,0 +1,26 @@
+# Simulator build + tests on GitHub's macOS runners (free for public repos). Device builds and
+# signing happen on Sam's Mac through the appbuild MCP, not here: no signing secrets in GitHub.
+name: test
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen && xcodegen generate
+      - name: Pick a simulator
+        id: sim
+        run: |
+          id=$(xcrun simctl list devices available -j | python3 -c 'import json,sys
+          d=json.load(sys.stdin)["devices"]
+          print(next(x["udid"] for r,v in sorted(d.items(), reverse=True) if "iOS" in r for x in v if x["name"].startswith("iPhone")))')
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+      - name: Test
+        run: |
+          xcodebuild test -project *.xcodeproj -scheme "$(basename *.xcodeproj .xcodeproj)" \
+            -destination "id=${{ steps.sim.outputs.id }}" CODE_SIGNING_ALLOWED=NO | tail -n 40
+          exit ${PIPESTATUS[0]}

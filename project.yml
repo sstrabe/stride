@@ -1,0 +1,74 @@
+# XcodeGen spec (the .xcodeproj is generated, not committed).
+# Free Personal Team: each bundle id counts towards 10 new app ids per 7 days; keep these two.
+name: Stride
+options:
+  bundleIdPrefix: dev.sstrabe
+  deploymentTarget: { iOS: "18.0", watchOS: "11.0" }
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: YES
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "6.0"
+targets:
+  Stride:
+    type: application
+    platform: iOS
+    sources: [Phone, Shared]
+    dependencies:
+      - target: StrideWatch
+    entitlements:
+      path: Phone/Stride.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+    info:
+      path: Phone/Info.plist
+      properties:
+        # audio: the click keeps playing with the screen off; location: GPS pace in the pocket
+        UIBackgroundModes: [audio, location]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sstrabe.stride
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: Stride
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSHealthShareUsageDescription: Stride reads your heart rate and workouts to show them during a run.
+        INFOPLIST_KEY_NSHealthUpdateUsageDescription: Stride saves your runs to Apple Health and Fitness.
+        INFOPLIST_KEY_NSMotionUsageDescription: Stride counts your steps to work out your stride length.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Stride uses GPS to measure your pace and map your run.
+        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: Stride uses GPS to measure your pace and map your run while the screen is off.
+  StrideWatch:
+    type: application
+    platform: watchOS
+    sources: [Watch, Shared]
+    entitlements:
+      path: Watch/StrideWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+    info:
+      path: Watch/Info.plist
+      properties:
+        # keeps the app running during the workout with the wrist down
+        WKBackgroundModes: [workout-processing]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sstrabe.stride.watchkitapp
+        INFOPLIST_KEY_CFBundleDisplayName: Stride
+        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: dev.sstrabe.stride
+        INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp: NO
+        INFOPLIST_KEY_NSHealthShareUsageDescription: Stride reads your heart rate and workouts during a run.
+        INFOPLIST_KEY_NSHealthUpdateUsageDescription: Stride saves your runs to Apple Health and Fitness.
+        INFOPLIST_KEY_NSMotionUsageDescription: Stride counts your steps to work out your stride length.
+  StrideTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies: [{ target: Stride }]
+schemes:
+  Stride:
+    build: { targets: { Stride: all } }
+    test: { targets: [StrideTests] }
