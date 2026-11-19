@@ -29,7 +29,7 @@ final class WatchWorkout: NSObject {
         try? await store.requestAuthorization(toShare: share, read: read)
     }
 
-    static var defaultConfiguration: HKWorkoutConfiguration {
+    nonisolated static var defaultConfiguration: HKWorkoutConfiguration {
         let c = HKWorkoutConfiguration()
         c.activityType = .running
         c.locationType = .outdoor
