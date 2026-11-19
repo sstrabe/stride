@@ -16,10 +16,10 @@ enum SelfTest {
             log("step counting: \(CMPedometer.isStepCountingAvailable()) cadence: \(CMPedometer.isCadenceAvailable())")
             log("location auth: \(CLLocationManager().authorizationStatus.rawValue)")
             let health = await Health()
-            let (st, sp) = await health.recentStrideAndSpeed()
-            let r = StrideFit.pair(strides: st, speeds: sp)
+            let (hst, hsp) = await health.recentStrideAndSpeed()
+            let r = StrideFit.pair(strides: hst, speeds: hsp)
             let e = StrideFit.estimate(at: Pace.speed(secondsPer: 502, unit: .mile), points: r.points, strides: r.unpaired)
-            log("health: \(st.count) stride + \(sp.count) speed samples, \(r.points.count) paired; 8:22/mi -> \(e.map { String(format: "%.3f m (%@)", $0.stride, $0.bySpeed ? "by speed" : "median") } ?? "none")")
+            log("health: \(hst.count) stride + \(hsp.count) speed samples, \(r.points.count) paired; 8:22/mi -> \(e.map { String(format: "%.3f m (%@)", $0.stride, $0.bySpeed ? "by speed" : "median") } ?? "none")")
             let m = Metronome()
             m.volume = 0
             m.bpm = 175
