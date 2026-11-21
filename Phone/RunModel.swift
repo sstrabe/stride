@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import CoreLocation
 import CoreMotion
 import Observation
@@ -8,6 +9,8 @@ import Observation
 @Observable
 final class RunModel: NSObject {
     enum State: Equatable { case idle, starting, running, finishing }
+    /// What the click follows: the target pace, or a heart-rate ceiling (easy runs).
+    enum PaceBy: String, CaseIterable { case pace, heartRate }
     /// Who records the run in Health.
     enum Recording: String, CaseIterable { case phone, watch, workoutApp }
 
@@ -17,14 +20,17 @@ final class RunModel: NSObject {
     var minCadence: Double = 140 { didSet { saveSettings(); rangeChanged() } }
     var maxCadence: Double = 200 { didSet { saveSettings(); rangeChanged() } }
     var startCadence: Double = 170 { didSet { saveSettings(); targetChanged() } }
-    var volume: Double = 1 { didSet { metronome.volume = Float(volume); saveSettings() } }
+    var volume: Double = 1 { didSet { metronome.volume = walking ? 0 : Float(volume); saveSettings() } }
     var lowerMusic: Bool = true { didSet { metronome.duckOthers = lowerMusic; saveSettings() } }
     var recording: Recording = .phone { didSet { saveSettings() } }
     var outdoor: Bool = true { didSet { saveSettings() } }
     /// Goal distance in metres (0: none). The click then aims for the whole distance at the
     /// target pace, making up time when behind (GoalPace).
     var goalMeters: Double = 0 { didSet { saveSettings() } }
-    var goal: Double? { goalMeters > 0 ? goalMeters : nil }
+    var goal: Double? { paceBy == .pace && goalMeters > 0 ? goalMeters : nil }
+    var paceBy: PaceBy = .pace { didSet { saveSettings() } }
+    /// Heart-rate mode: keep the heart rate under this (bpm). The target pace is the start.
+    var hrCeiling: Double = 150 { didSet { hrGov.ceiling = hrCeiling; saveSettings(); sendStatus(force: true) } }
 
     // MARK: live
     private(set) var state: State = .idle
@@ -35,7 +41,11 @@ final class RunModel: NSObject {
     private(set) var currentSpeed: Double?
     private(set) var distance: Double = 0
     private(set) var startDate: Date?
-    private(set) var heartRate: Double?
+    private(set) var heartRate: Double? { didSet { if heartRate != nil { heartRateAt = Date() } } }
+    @ObservationIgnored private var heartRateAt: Date?
+    private(set) var walking = false
+    @ObservationIgnored private var hrGov = HeartRateGovernor(ceiling: 150, startSpeed: 2.7)
+    @ObservationIgnored private let speech = AVSpeechSynthesizer()
     private(set) var behind: Double?
     private(set) var aimSpeed: Double?
     @ObservationIgnored private var goalReached = false
@@ -194,10 +204,11 @@ final class RunModel: NSObject {
         startDate = date
         state = .running
         splitTracker = SplitTracker(start: date); splitList = []; elevation = ElevationTracker(); routePoints = 0
+        hrGov = HeartRateGovernor(ceiling: hrCeiling, startSpeed: targetSpeed)
         log.begin([
             "recording": recording.rawValue, "outdoor": outdoor, "recordingOn": recordingOn, "mirrored": health.isMirrored,
             "targetSecondsPerUnit": targetSeconds, "unit": unit.rawValue, "targetSpeed": targetSpeed,
-            "goalMeters": goalMeters, "lowerMusic": lowerMusic, "volume": volume, "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
+            "goalMeters": goalMeters, "paceBy": paceBy.rawValue, "hrCeiling": hrCeiling, "lowerMusic": lowerMusic, "volume": volume, "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
             "openingCadence": openingCadence, "healthStride": healthStride.map { [$0.stride, $0.bySpeed] as [Any] as Any } ?? NSNull(),
             "healthPoints": healthPoints.count, "workoutStart": Export.iso(date),
             "app": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
@@ -324,7 +335,12 @@ final class RunModel: NSObject {
         for s in done { log.event("split \(s.unitMeters == 1000 ? "km" : "mi") \(s.index): \(Int(s.end.timeIntervalSince(s.start))) s") }
         splitList += done
         let elapsed = startDate.map { Date().timeIntervalSince($0) } ?? 0
-        if let g = goal {
+        if paceBy == .heartRate {
+            let fresh = heartRateAt.map { Date().timeIntervalSince($0) < 15 } ?? false
+            aimSpeed = hrGov.update(heartRate: fresh ? heartRate : nil, time: Date().timeIntervalSinceReferenceDate,
+                                    atFloor: clickCadence <= minCadence + 0.5)
+            if hrGov.walking != walking { walking = hrGov.walking; walkChanged() }
+        } else if let g = goal {
             if distance < g {
                 behind = GoalPace.behind(distance: distance, elapsed: elapsed, targetSpeed: targetSpeed)
             } else if !goalReached {
@@ -332,7 +348,7 @@ final class RunModel: NSObject {
                 log.event("goal reached: \(Int(elapsed)) s for \(Int(g)) m (target \(Int(g / targetSpeed)) s)")
             }
         }
-        aimSpeed = GoalPace.speed(goal: goal, distance: distance, elapsed: elapsed, targetSpeed: targetSpeed)
+        if paceBy == .pace { aimSpeed = GoalPace.speed(goal: goal, distance: distance, elapsed: elapsed, targetSpeed: targetSpeed) }
         governor.targetSpeed = aimSpeed ?? targetSpeed
         wantedCadence = governor.desired(stepLength: stepLength)
         clickCadence = governor.update(stepLength: stepLength, time: Date().timeIntervalSinceReferenceDate, hold: holding)
@@ -367,6 +383,18 @@ final class RunModel: NSObject {
         routeBuffer.removeAll()
         holding = false
         behind = nil; aimSpeed = nil; goalReached = false
+        if walking { walking = false; metronome.volume = Float(volume) }
+        heartRateAt = nil
+    }
+
+    /// Heart-rate mode: the click goes quiet for a walk and comes back for running.
+    private func walkChanged() {
+        metronome.volume = walking ? 0 : Float(volume)
+        log.event(walking ? "walk (heart rate \(Int(heartRate ?? 0)))" : "run again (heart rate \(Int(heartRate ?? 0)))")
+        let u = AVSpeechUtterance(string: walking ? "Walk for a bit, until your heart rate comes down." : "Heart rate's down. Run easy.")
+        u.volume = 1
+        speech.speak(u)
+        sendStatus(force: true)
     }
 
     // MARK: settings changes
@@ -411,7 +439,9 @@ final class RunModel: NSObject {
                                       stepLength: stepLength, distance: distance,
                                       elapsed: startDate.map { Date().timeIntervalSince($0) } ?? 0, holding: holding,
                                       goalRemaining: goal.flatMap { $0 > distance ? $0 - distance : nil },
-                                      behind: goalReached ? nil : behind)))
+                                      behind: goalReached ? nil : behind,
+                                      hrCeiling: paceBy == .heartRate ? hrCeiling : nil,
+                                      walking: paceBy == .heartRate ? walking : nil)))
     }
 
     // MARK: persistence
@@ -434,6 +464,8 @@ final class RunModel: NSObject {
         else if d.bool(forKey: "useWatch") { recording = .watch }
         if d.object(forKey: "outdoor") != nil { outdoor = d.bool(forKey: "outdoor") }
         goalMeters = d.double(forKey: "goalMeters")
+        if let p = d.string(forKey: "paceBy").flatMap(PaceBy.init(rawValue:)) { paceBy = p }
+        if d.object(forKey: "hrCeiling") != nil { hrCeiling = d.double(forKey: "hrCeiling") }
         if d.object(forKey: "lowerMusic") != nil { lowerMusic = d.bool(forKey: "lowerMusic") }
     }
 
@@ -443,6 +475,7 @@ final class RunModel: NSObject {
         d.set(targetSeconds, forKey: "targetSeconds"); d.set(unit.rawValue, forKey: "unit")
         d.set(minCadence, forKey: "minCadence"); d.set(maxCadence, forKey: "maxCadence")
         d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording"); d.set(outdoor, forKey: "outdoor"); d.set(lowerMusic, forKey: "lowerMusic"); d.set(goalMeters, forKey: "goalMeters")
+        d.set(paceBy.rawValue, forKey: "paceBy"); d.set(hrCeiling, forKey: "hrCeiling")
     }
 }
 

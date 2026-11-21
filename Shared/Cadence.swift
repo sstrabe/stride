@@ -144,3 +144,49 @@ enum GoalPace {
         return min(max((goal - distance) / timeLeft, lo), hi)
     }
 }
+
+/// Easy runs by heart rate: the speed to aim for drifts down while the heart rate is over the
+/// ceiling and up while it is well under it (heart rate lags the effort by half a minute or
+/// more, so it moves slowly). If the click is already at its lowest and the heart rate stays
+/// over the ceiling, it calls for a walk until the heart rate is back well under.
+struct HeartRateGovernor: Sendable {
+    var ceiling: Double
+    /// Aim for this band under the ceiling.
+    var band: Double = 6
+    var minSpeed = 1.0, maxSpeed = 5.0
+    /// m/s per second per bpm out of the band (down twice as fast as up).
+    var gain = 0.0006
+    var walkAfter: TimeInterval = 30
+    var walkOver: Double = 5
+    var resumeUnder: Double = 12
+
+    private(set) var speed: Double
+    private(set) var walking = false
+    private var lastTime: TimeInterval?
+    private var overSince: TimeInterval?
+
+    init(ceiling: Double, startSpeed: Double) {
+        self.ceiling = ceiling
+        self.speed = startSpeed
+    }
+
+    /// `atFloor`: the click is at its lowest tempo, so slowing the click can't slow the run.
+    @discardableResult
+    mutating func update(heartRate hr: Double?, time: TimeInterval, atFloor: Bool) -> Double {
+        let dt = lastTime.map { min(max(0, time - $0), 5) } ?? 0
+        lastTime = time
+        guard let hr else { return speed }
+        if hr > ceiling { speed -= 2 * gain * (hr - ceiling) * dt }
+        else if hr < ceiling - band { speed += gain * (ceiling - band - hr) * dt }
+        speed = min(max(speed, minSpeed), maxSpeed)
+
+        if walking {
+            if hr <= ceiling - resumeUnder { walking = false; overSince = nil }
+        } else if atFloor && hr > ceiling + walkOver {
+            if let s = overSince { if time - s >= walkAfter { walking = true } } else { overSince = time }
+        } else {
+            overSince = nil
+        }
+        return speed
+    }
+}

@@ -154,3 +154,26 @@ import Foundation
     #expect(GoalPace.speed(goal: mile, distance: mile + 1, elapsed: 600, targetSpeed: v) == v)
     #expect(GoalPace.speed(goal: nil, distance: 10, elapsed: 600, targetSpeed: v) == v)
 }
+
+@Test func heartRateGovernorEasesOffAndCallsWalk() {
+    var g = HeartRateGovernor(ceiling: 150, startSpeed: 2.7)
+    // in the band: speed holds
+    for t in 0...60 { g.update(heartRate: 147, time: Double(t), atFloor: false) }
+    #expect(abs(g.speed - 2.7) < 1e-9)
+    // 10 over for a minute: slower, no walk while the click can still slow down
+    for t in 61...120 { g.update(heartRate: 160, time: Double(t), atFloor: false) }
+    #expect(g.speed < 2.7 - 0.5 && !g.walking)
+    // at the lowest click and still over: walk after 30 s
+    for t in 121...140 { g.update(heartRate: 160, time: Double(t), atFloor: true) }
+    #expect(!g.walking)
+    for t in 141...160 { g.update(heartRate: 160, time: Double(t), atFloor: true) }
+    #expect(g.walking)
+    // walking until well under, then running again; far under: speeds up
+    g.update(heartRate: 145, time: 161, atFloor: true); #expect(g.walking)
+    g.update(heartRate: 137, time: 162, atFloor: true); #expect(!g.walking)
+    let s = g.speed
+    for t in 163...223 { g.update(heartRate: 130, time: Double(t), atFloor: false) }
+    #expect(g.speed > s)
+    // no heart rate: hold
+    let h = g.speed; g.update(heartRate: nil, time: 300, atFloor: false); #expect(g.speed == h)
+}

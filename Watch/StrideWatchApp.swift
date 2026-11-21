@@ -86,6 +86,11 @@ struct WatchRunView: View {
                     }
                 }
                 .font(.footnote)
+                if st?.walking == true {
+                    Text("WALK").font(.title3.bold()).foregroundStyle(.orange)
+                } else if let c = st?.hrCeiling {
+                    Text("♥ under \(Int(c))").font(.footnote).foregroundStyle((w.heartRate ?? 0) > c ? .orange : .green)
+                }
                 if let left = st?.goalRemaining {
                     let b = st?.behind ?? 0
                     Text(String(format: "%.2f %@ · ", left / unit.meters, unit.short) + (abs(b) < 3 ? "on time" : "\(Int(abs(b).rounded()))s \(b > 0 ? "behind" : "ahead")"))

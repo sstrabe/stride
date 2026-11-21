@@ -13,6 +13,8 @@ struct RunStatus: Codable, Sendable, Equatable {
     var holding: Bool
     var goalRemaining: Double? = nil  // metres left to the goal distance (nil: no goal or reached)
     var behind: Double? = nil         // seconds behind the goal schedule (negative: ahead)
+    var hrCeiling: Double? = nil      // heart-rate mode: the ceiling (nil: pace mode)
+    var walking: Bool? = nil          // heart-rate mode: walk until the heart rate comes down
 }
 
 enum RemoteMessage: Codable, Sendable {

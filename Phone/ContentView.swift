@@ -10,8 +10,14 @@ struct ContentView: View {
         @Bindable var run = run
         NavigationStack {
             VStack(spacing: 20) {
-                targetCard
-                goalRow
+                if run.state == .idle {
+                    Picker("Follow", selection: $run.paceBy) {
+                        Text("Pace").tag(RunModel.PaceBy.pace)
+                        Text("Heart rate").tag(RunModel.PaceBy.heartRate)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                if run.paceBy == .heartRate { heartRateCard } else { targetCard; goalRow }
                 clickCard
                 if run.state == .running { liveGrid }
                 Spacer(minLength: 0)
@@ -101,6 +107,47 @@ struct ContentView: View {
         }
         .font(.subheadline)
         .padding(.horizontal, 4)
+    }
+
+    /// Heart-rate mode: a ceiling instead of a pace; the target pace is only where it starts.
+    private var heartRateCard: some View {
+        @Bindable var run = run
+        return VStack(spacing: 6) {
+            Text("Keep heart rate under").font(.subheadline).foregroundStyle(.secondary)
+            HStack(spacing: 18) {
+                Button { run.hrCeiling = max(100, run.hrCeiling - 1) } label: { Image(systemName: "minus.circle.fill") }
+                    .font(.title)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text("\(Int(run.hrCeiling))").font(.system(size: 56, weight: .bold, design: .rounded)).monospacedDigit()
+                    Text("bpm").font(.title3).foregroundStyle(.secondary)
+                }
+                Button { run.hrCeiling = min(200, run.hrCeiling + 1) } label: { Image(systemName: "plus.circle.fill") }
+                    .font(.title)
+            }
+            .buttonStyle(.plain)
+            if run.state == .running {
+                if run.walking {
+                    Text("Walk until it comes down").font(.headline).foregroundStyle(.orange)
+                } else if let hr = run.heartRate {
+                    Text("now \(Int(hr.rounded())) bpm").font(.subheadline.monospacedDigit())
+                        .foregroundStyle(hr > run.hrCeiling ? .orange : .green)
+                } else {
+                    Text("waiting for heart rate from the Watch…").font(.subheadline).foregroundStyle(.secondary)
+                }
+            } else {
+                Button { pickingPace = true } label: {
+                    Text("starts at \(Pace.format(run.targetSeconds))\(run.unit.paceSuffix), then follows your heart rate")
+                        .font(.subheadline).multilineTextAlignment(.center)
+                }
+                if run.recording != .watch {
+                    Text("Needs Stride on Apple Watch for the heart rate (Settings → Record with).")
+                        .font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 16))
     }
 
     private var clickCard: some View {
