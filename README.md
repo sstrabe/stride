@@ -23,6 +23,10 @@ click (steps/min) = target speed (m/s) × 60 ÷ step length (m)
 - **Audio**: AVAudioEngine schedules every click at an exact sample time, a little ahead of the
   playhead. The session mixes with other audio (music at full volume) and keeps playing with the
   screen off.
+- **Goal distance** (optional, e.g. 1 mile): the click aims for the whole distance at the target
+  pace. Behind schedule it asks for up to 12% more speed, ahead up to 12% less
+  (`GoalPace`); after the goal it goes back to the plain target. The iPhone and the Watch show
+  what's left and how far ahead or behind you are.
 - **Health and Fitness**:
   - *iPhone only* (default): a HealthKit workout session on the iPhone (iOS 26). It records an
     outdoor run with its GPS route, distance, active energy, and a running stride length sample
