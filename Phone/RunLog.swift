@@ -14,7 +14,8 @@ final class RunLog {
     private var lastFlush = Date()
 
     static let columns = ["t", "click", "wanted", "stepLength", "measuredCadence", "speed", "distance",
-                          "gpsGood", "gpsDistance", "pedoSteps", "pedoDistance", "heartRate", "holding", "hAcc", "alt"]
+                          "gpsGood", "gpsDistance", "pedoSteps", "pedoDistance", "heartRate", "holding", "hAcc", "alt",
+                          "gpsPathDistance", "watchDistance", "watchSteps", "source"]
 
     func begin(_ info: [String: Any]) {
         start = Date()

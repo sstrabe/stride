@@ -28,7 +28,9 @@ final class Metronome: @unchecked Sendable {
         set { lock.withLock { _bpm = min(max(newValue, 40), 260) } }
     }
 
-    var volume: Float = 0.8 { didSet { player.volume = volume } }
+    var volume: Float = 1 { didSet { player.volume = volume } }
+    /// Lowers other audio (music) while the click plays, so the click cuts through.
+    var duckOthers = true
     var isRunning: Bool { queue.sync { running } }
 
     init() {
@@ -48,8 +50,9 @@ final class Metronome: @unchecked Sendable {
         try queue.sync {
             guard !running else { return }
             let s = AVAudioSession.sharedInstance()
-            // mixWithOthers: the user's music keeps playing at full volume under the click
-            try s.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            // mixWithOthers: the user's music keeps playing under the click; duckOthers turns it
+            // down while we play (the click alone was lost under music at full volume)
+            try s.setCategory(.playback, mode: .default, options: duckOthers ? [.mixWithOthers, .duckOthers] : [.mixWithOthers])
             try s.setActive(true)
             try startEngine()
             running = true
@@ -119,18 +122,21 @@ final class Metronome: @unchecked Sendable {
         }
     }
 
-    /// A short woodblock-like tick: two decaying sines, 25 ms.
+    /// A bright woodblock-like tick, 40 ms: three decaying partials where music is thin
+    /// (1.9, 3.4 and 5.2 kHz), soft-clipped so it is loud for its length, peak at full scale.
     private static func makeClick(format: AVAudioFormat) -> AVAudioPCMBuffer? {
         let sr = format.sampleRate
-        let n = AVAudioFrameCount(0.025 * sr)
+        let n = AVAudioFrameCount(0.04 * sr)
         guard let b = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: n), let ch = b.floatChannelData?[0] else { return nil }
         b.frameLength = n
+        var raw = [Double](repeating: 0, count: Int(n))
         for i in 0..<Int(n) {
             let t = Double(i) / sr
-            let env = exp(-t * 180) * min(1, t * sr / 24)       // ~0.5 ms attack, fast decay
-            let s = 0.75 * sin(2 * .pi * 1_750 * t) + 0.35 * sin(2 * .pi * 3_100 * t)
-            ch[i] = Float(s * env * 0.9)
+            let env = exp(-t * 110) * min(1, t * sr / 24)       // ~0.5 ms attack
+            raw[i] = (0.8 * sin(2 * .pi * 1_900 * t) + 0.55 * sin(2 * .pi * 3_400 * t) + 0.3 * sin(2 * .pi * 5_200 * t)) * env
         }
+        let peak = raw.map(abs).max() ?? 1
+        for i in 0..<Int(n) { ch[i] = Float(tanh(2.5 * raw[i] / peak) / tanh(2.5) * 0.98) }
         return b
     }
 }

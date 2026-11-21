@@ -238,14 +238,20 @@ extension WatchWorkout: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate {
     nonisolated func workoutBuilderDidCollectEvent(_ b: HKLiveWorkoutBuilder) {}
 
     nonisolated func workoutBuilder(_ b: HKLiveWorkoutBuilder, didCollectDataOf types: Set<HKSampleType>) {
-        let hr = HKQuantityType(.heartRate), dist = HKQuantityType(.distanceWalkingRunning)
+        let hr = HKQuantityType(.heartRate), dist = HKQuantityType(.distanceWalkingRunning), steps = HKQuantityType(.stepCount)
         let v = types.contains(hr) ? b.statistics(for: hr)?.mostRecentQuantity()?.doubleValue(for: .count().unitDivided(by: .minute())) : nil
         let ds = types.contains(dist) ? b.statistics(for: dist) : nil
         let d = ds?.sumQuantity()?.doubleValue(for: .meter())
         let at = ds?.mostRecentQuantityDateInterval()?.end ?? Date()
+        let changed = types.contains(dist) || types.contains(steps)
+        let totD = b.statistics(for: dist)?.sumQuantity()?.doubleValue(for: .meter())
+        let totS = b.statistics(for: steps)?.sumQuantity()?.doubleValue(for: .count())
         Task { @MainActor in
-            if let v { self.heartRate = v }
+            if let v { self.heartRate = v; self.send(.heartRate(v)) }
             if let d { self.distanceUpdate(d, at: at) }
+            // the Watch's distance (GPS + motion, calibrated) is better than the iPhone's GPS
+            // alone; with its own steps the iPhone gets a consistent step length from it
+            if changed, let totD, let totS { self.send(.totals(distance: totD, steps: totS)) }
         }
     }
 }

@@ -232,6 +232,7 @@ struct SettingsView: View {
                     Text("The click starts at the cadence your target pace needs at your usual step length in Apple Health (stride length and speed from your past runs); without Health data, at the start tempo. Once your stride is measured it moves to the cadence your target pace needs at that stride, at most 3 spm per 10 seconds.")
                 }
                 Section {
+                    Toggle("Lower music during a run", isOn: $run.lowerMusic)
                     Picker("Where", selection: $run.outdoor) {
                         Text("Outdoors").tag(true)
                         Text("Indoors / treadmill").tag(false)

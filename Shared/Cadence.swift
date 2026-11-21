@@ -42,11 +42,11 @@ enum Cadence {
 /// Measures the current step length (one foot strike to the next) from cumulative distance and
 /// step counts over a rolling window: Δdistance / Δsteps.
 struct StepLengthEstimator {
-    enum Source: String, Sendable { case gps, pedometer }
+    enum Source: String, Sendable { case gps, pedometer, watch }
 
     struct Sample { var time: TimeInterval; var distance: Double; var steps: Double; var source: Source }
 
-    var window: TimeInterval = 15
+    var window: TimeInterval = 20
     var minSteps: Double = 12
     var plausible: ClosedRange<Double> = 0.3...2.5
 

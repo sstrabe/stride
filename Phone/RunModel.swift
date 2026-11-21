@@ -17,7 +17,8 @@ final class RunModel: NSObject {
     var minCadence: Double = 150 { didSet { saveSettings(); rangeChanged() } }
     var maxCadence: Double = 200 { didSet { saveSettings(); rangeChanged() } }
     var startCadence: Double = 170 { didSet { saveSettings(); targetChanged() } }
-    var volume: Double = 0.8 { didSet { metronome.volume = Float(volume); saveSettings() } }
+    var volume: Double = 1 { didSet { metronome.volume = Float(volume); saveSettings() } }
+    var lowerMusic: Bool = true { didSet { metronome.duckOthers = lowerMusic; saveSettings() } }
     var recording: Recording = .phone { didSet { saveSettings() } }
     var outdoor: Bool = true { didSet { saveSettings() } }
 
@@ -78,6 +79,11 @@ final class RunModel: NSObject {
     private var splitList: [SplitTracker.Split] = []
     private var elevation = ElevationTracker()
     private var routePoints = 0
+    private var watchDistance: Double?
+    private var watchSteps: Double?
+    private var lastWatchTotals: Date?
+    private var gpsPathDistance: Double = 0
+    private var watchFresh: Bool { lastWatchTotals.map { Date().timeIntervalSince($0) < 10 } ?? false }
 
     override init() {
         super.init()
@@ -85,6 +91,7 @@ final class RunModel: NSObject {
         clickCadence = startCadence
         governor = CadenceGovernor(targetSpeed: targetSpeed, startCadence: startCadence, range: minCadence...maxCadence)
         metronome.volume = Float(volume)
+        metronome.duckOthers = lowerMusic
         location.delegate = self
         location.activityType = .fitness
         location.desiredAccuracy = kCLLocationAccuracyBest
@@ -183,7 +190,7 @@ final class RunModel: NSObject {
         log.begin([
             "recording": recording.rawValue, "outdoor": outdoor, "recordingOn": recordingOn, "mirrored": health.isMirrored,
             "targetSecondsPerUnit": targetSeconds, "unit": unit.rawValue, "targetSpeed": targetSpeed,
-            "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
+            "lowerMusic": lowerMusic, "volume": volume, "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
             "openingCadence": openingCadence, "healthStride": healthStride.map { [$0.stride, $0.bySpeed] as [Any] as Any } ?? NSNull(),
             "healthPoints": healthPoints.count, "workoutStart": Export.iso(date),
             "app": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
@@ -259,6 +266,8 @@ final class RunModel: NSObject {
         pedoSteps = steps
         if let pd { pedoDistance = pd }
         // GPS distance when the fix is good, the pedometer's own estimate otherwise (treadmill, tunnels)
+        // the Watch's totals take over while they keep coming (Watch mode)
+        guard !watchFresh else { update(); return }
         let gps = lastGoodFix.map { Date().timeIntervalSince($0) < 5 } ?? false
         let sample = StepLengthEstimator.Sample(time: Date().timeIntervalSinceReferenceDate,
                                                 distance: gps ? gpsDistance : pedoDistance,
@@ -273,7 +282,11 @@ final class RunModel: NSObject {
             if let prev = lastLocation {
                 let d = l.distance(from: prev), dt = l.timestamp.timeIntervalSince(prev.timestamp)
                 guard dt > 0 else { continue }
-                if d / dt < 12 { gpsDistance += d }      // ignore jumps faster than a sprinter
+                if d / dt < 12 { gpsPathDistance += d }      // ignore jumps faster than a sprinter
+                // Summing the steps between fixes adds up their wobble (7-9 m fixes made a run
+                // 16% too long against the Watch, 2026-11-21); the Doppler speed doesn't wobble.
+                if l.speed >= 0, l.speedAccuracy >= 0, l.speedAccuracy <= 2, dt <= 3 { gpsDistance += l.speed * dt }
+                else if d / dt < 12 { gpsDistance += d }
             }
             lastLocation = l
             lastGoodFix = Date()
@@ -298,7 +311,7 @@ final class RunModel: NSObject {
         stepLength = estimator.stepLength
         measuredCadence = estimator.cadence
         currentSpeed = estimator.speed ?? (gpsGood ? lastLocation.map { max(0, $0.speed) } : nil)
-        distance = gpsDistance > 0 ? max(gpsDistance, 0) : pedoDistance
+        distance = watchFresh ? (watchDistance ?? 0) : (gpsDistance > 0 ? gpsDistance : pedoDistance)
         let done = splitTracker.add(distance: distance, at: Date())
         for s in done { log.event("split \(s.unitMeters == 1000 ? "km" : "mi") \(s.index): \(Int(s.end.timeIntervalSince(s.start))) s") }
         splitList += done
@@ -311,7 +324,8 @@ final class RunModel: NSObject {
         sendStatus(force: false)
         log.row([clickCadence, wantedCadence, stepLength, measuredCadence, currentSpeed, distance, gpsGood,
                  gpsDistance, pedoSteps, pedoDistance, heartRate, holding,
-                 lastLocation?.horizontalAccuracy, lastLocation?.altitude])
+                 lastLocation?.horizontalAccuracy, lastLocation?.altitude, gpsPathDistance, watchDistance, watchSteps,
+                 watchFresh ? "watch" : (gpsGood ? "gps" : "pedometer")])
     }
 
     /// One running-stride-length sample per minute for Health.
@@ -326,7 +340,8 @@ final class RunModel: NSObject {
 
     private func resetLive() {
         estimator.reset()
-        gpsDistance = 0; pedoSteps = 0; pedoDistance = 0; distance = 0
+        gpsDistance = 0; gpsPathDistance = 0; pedoSteps = 0; pedoDistance = 0; distance = 0
+        watchDistance = nil; watchSteps = nil; lastWatchTotals = nil
         lastLocation = nil; lastGoodFix = nil
         stepLength = nil; measuredCadence = nil; currentSpeed = nil; wantedCadence = nil; heartRate = nil
         strides.removeAll(); strideBucket.removeAll(); speeds.removeAll(); speedBucket.removeAll(); lastStrideMinute = nil
@@ -359,6 +374,11 @@ final class RunModel: NSObject {
         case .setHold(let h): holding = h; log.event("watch hold \(h)")
         case .heartRate(let hr): heartRate = hr
         case .diag(let s): log.event("watch: \(s)")
+        case .totals(let d, let s):
+            if !watchFresh { log.event("distance from the Watch") }
+            watchDistance = d; watchSteps = s; lastWatchTotals = Date()
+            estimator.add(.init(time: Date().timeIntervalSinceReferenceDate, distance: d, steps: s, source: .watch))
+            update()
         case .status: break
         }
     }
@@ -388,6 +408,7 @@ final class RunModel: NSObject {
         if let r = d.string(forKey: "recording").flatMap(Recording.init(rawValue:)) { recording = r }
         else if d.bool(forKey: "useWatch") { recording = .watch }
         if d.object(forKey: "outdoor") != nil { outdoor = d.bool(forKey: "outdoor") }
+        if d.object(forKey: "lowerMusic") != nil { lowerMusic = d.bool(forKey: "lowerMusic") }
     }
 
     private func saveSettings() {
@@ -395,7 +416,7 @@ final class RunModel: NSObject {
         let d = defaults
         d.set(targetSeconds, forKey: "targetSeconds"); d.set(unit.rawValue, forKey: "unit")
         d.set(minCadence, forKey: "minCadence"); d.set(maxCadence, forKey: "maxCadence")
-        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording"); d.set(outdoor, forKey: "outdoor")
+        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording"); d.set(outdoor, forKey: "outdoor"); d.set(lowerMusic, forKey: "lowerMusic")
     }
 }
 
