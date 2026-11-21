@@ -108,7 +108,7 @@ final class Health: NSObject {
 
     struct Summary {
         var distance: Double; var strides: [(Date, Double)]; var speeds: [(Date, Double)]
-        var targetSecondsPerUnit: Double; var unit: DistanceUnit
+        var targetSecondsPerUnit: Double; var unit: DistanceUnit; var goalMeters: Double = 0
         var outdoor: Bool; var splits: [SplitTracker.Split]; var ascended: Double; var descended: Double
         var routePoints: Int
     }
@@ -155,6 +155,7 @@ final class Health: NSObject {
                 HKMetadataKeyTimeZone: TimeZone.current.identifier,
                 "StrideTargetPace": "\(Pace.format(summary.targetSecondsPerUnit)) \(summary.unit.paceSuffix)",
             ]
+            if summary.goalMeters > 0 { meta["StrideGoalMeters"] = summary.goalMeters }
             if summary.outdoor {
                 meta[HKMetadataKeyElevationAscended] = HKQuantity(unit: .meter(), doubleValue: summary.ascended)
                 meta[HKMetadataKeyElevationDescended] = HKQuantity(unit: .meter(), doubleValue: summary.descended)

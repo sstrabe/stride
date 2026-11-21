@@ -21,6 +21,10 @@ final class RunModel: NSObject {
     var lowerMusic: Bool = true { didSet { metronome.duckOthers = lowerMusic; saveSettings() } }
     var recording: Recording = .phone { didSet { saveSettings() } }
     var outdoor: Bool = true { didSet { saveSettings() } }
+    /// Goal distance in metres (0: none). The click then aims for the whole distance at the
+    /// target pace, making up time when behind (GoalPace).
+    var goalMeters: Double = 0 { didSet { saveSettings() } }
+    var goal: Double? { goalMeters > 0 ? goalMeters : nil }
 
     // MARK: live
     private(set) var state: State = .idle
@@ -32,6 +36,9 @@ final class RunModel: NSObject {
     private(set) var distance: Double = 0
     private(set) var startDate: Date?
     private(set) var heartRate: Double?
+    private(set) var behind: Double?
+    private(set) var aimSpeed: Double?
+    @ObservationIgnored private var goalReached = false
     private(set) var gpsGood = false
     private(set) var recordingOn: String = ""
     private(set) var message: String?
@@ -190,7 +197,7 @@ final class RunModel: NSObject {
         log.begin([
             "recording": recording.rawValue, "outdoor": outdoor, "recordingOn": recordingOn, "mirrored": health.isMirrored,
             "targetSecondsPerUnit": targetSeconds, "unit": unit.rawValue, "targetSpeed": targetSpeed,
-            "lowerMusic": lowerMusic, "volume": volume, "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
+            "goalMeters": goalMeters, "lowerMusic": lowerMusic, "volume": volume, "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
             "openingCadence": openingCadence, "healthStride": healthStride.map { [$0.stride, $0.bySpeed] as [Any] as Any } ?? NSNull(),
             "healthPoints": healthPoints.count, "workoutStart": Export.iso(date),
             "app": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
@@ -237,6 +244,7 @@ final class RunModel: NSObject {
         } else {
             recordingOn = await health.finish(at: end, summary: .init(
                 distance: distance, strides: strides, speeds: speeds, targetSecondsPerUnit: targetSeconds, unit: unit,
+                goalMeters: goalMeters,
                 outdoor: outdoor, splits: splitList + splitTracker.finish(at: end),
                 ascended: elevation.ascended, descended: elevation.descended, routePoints: routePoints))
         }
@@ -315,6 +323,17 @@ final class RunModel: NSObject {
         let done = splitTracker.add(distance: distance, at: Date())
         for s in done { log.event("split \(s.unitMeters == 1000 ? "km" : "mi") \(s.index): \(Int(s.end.timeIntervalSince(s.start))) s") }
         splitList += done
+        let elapsed = startDate.map { Date().timeIntervalSince($0) } ?? 0
+        if let g = goal {
+            if distance < g {
+                behind = GoalPace.behind(distance: distance, elapsed: elapsed, targetSpeed: targetSpeed)
+            } else if !goalReached {
+                goalReached = true
+                log.event("goal reached: \(Int(elapsed)) s for \(Int(g)) m (target \(Int(g / targetSpeed)) s)")
+            }
+        }
+        aimSpeed = GoalPace.speed(goal: goal, distance: distance, elapsed: elapsed, targetSpeed: targetSpeed)
+        governor.targetSpeed = aimSpeed ?? targetSpeed
         wantedCadence = governor.desired(stepLength: stepLength)
         clickCadence = governor.update(stepLength: stepLength, time: Date().timeIntervalSinceReferenceDate, hold: holding)
         metronome.bpm = clickCadence
@@ -325,7 +344,7 @@ final class RunModel: NSObject {
         log.row([clickCadence, wantedCadence, stepLength, measuredCadence, currentSpeed, distance, gpsGood,
                  gpsDistance, pedoSteps, pedoDistance, heartRate, holding,
                  lastLocation?.horizontalAccuracy, lastLocation?.altitude, gpsPathDistance, watchDistance, watchSteps,
-                 watchFresh ? "watch" : (gpsGood ? "gps" : "pedometer")])
+                 watchFresh ? "watch" : (gpsGood ? "gps" : "pedometer"), aimSpeed, behind])
     }
 
     /// One running-stride-length sample per minute for Health.
@@ -347,6 +366,7 @@ final class RunModel: NSObject {
         strides.removeAll(); strideBucket.removeAll(); speeds.removeAll(); speedBucket.removeAll(); lastStrideMinute = nil
         routeBuffer.removeAll()
         holding = false
+        behind = nil; aimSpeed = nil; goalReached = false
     }
 
     // MARK: settings changes
@@ -389,7 +409,9 @@ final class RunModel: NSObject {
         health.send(.status(RunStatus(targetSecondsPerUnit: targetSeconds, unit: unit, clickCadence: clickCadence,
                                       measuredCadence: measuredCadence, currentSecondsPerUnit: currentSecondsPerUnit,
                                       stepLength: stepLength, distance: distance,
-                                      elapsed: startDate.map { Date().timeIntervalSince($0) } ?? 0, holding: holding)))
+                                      elapsed: startDate.map { Date().timeIntervalSince($0) } ?? 0, holding: holding,
+                                      goalRemaining: goal.flatMap { $0 > distance ? $0 - distance : nil },
+                                      behind: goalReached ? nil : behind)))
     }
 
     // MARK: persistence
@@ -408,6 +430,7 @@ final class RunModel: NSObject {
         if let r = d.string(forKey: "recording").flatMap(Recording.init(rawValue:)) { recording = r }
         else if d.bool(forKey: "useWatch") { recording = .watch }
         if d.object(forKey: "outdoor") != nil { outdoor = d.bool(forKey: "outdoor") }
+        goalMeters = d.double(forKey: "goalMeters")
         if d.object(forKey: "lowerMusic") != nil { lowerMusic = d.bool(forKey: "lowerMusic") }
     }
 
@@ -416,7 +439,7 @@ final class RunModel: NSObject {
         let d = defaults
         d.set(targetSeconds, forKey: "targetSeconds"); d.set(unit.rawValue, forKey: "unit")
         d.set(minCadence, forKey: "minCadence"); d.set(maxCadence, forKey: "maxCadence")
-        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording"); d.set(outdoor, forKey: "outdoor"); d.set(lowerMusic, forKey: "lowerMusic")
+        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording"); d.set(outdoor, forKey: "outdoor"); d.set(lowerMusic, forKey: "lowerMusic"); d.set(goalMeters, forKey: "goalMeters")
     }
 }
 

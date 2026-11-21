@@ -137,3 +137,20 @@ import Foundation
     for i in 0..<100 { e.add(altitude: 100 + Double(i) * 0.5, verticalAccuracy: 5) }   // climb ~50 m
     #expect(e.ascended > 40 && e.ascended < 52)
 }
+
+@Test func goalPaceCatchesUp() {
+    let v = Pace.speed(secondsPer: 502, unit: .mile)
+    let mile = DistanceUnit.mile.meters
+    // on schedule: the plain target
+    #expect(abs(GoalPace.speed(goal: mile, distance: v * 100, elapsed: 100, targetSpeed: v) - v) < 1e-9)
+    // 20 s behind at half way: a little faster, inside the band
+    let half = mile / 2, t = half / v + 20
+    let s = GoalPace.speed(goal: mile, distance: half, elapsed: t, targetSpeed: v)
+    #expect(s > v && s <= v * (1 + GoalPace.band) + 1e-9)
+    #expect(abs(GoalPace.behind(distance: half, elapsed: t, targetSpeed: v) - 20) < 1e-9)
+    // ahead: a little slower; far behind: capped; goal reached or none: the target
+    #expect(GoalPace.speed(goal: mile, distance: half, elapsed: half / v - 20, targetSpeed: v) < v)
+    #expect(abs(GoalPace.speed(goal: mile, distance: 100, elapsed: 480, targetSpeed: v) - v * (1 + GoalPace.band)) < 1e-9)
+    #expect(GoalPace.speed(goal: mile, distance: mile + 1, elapsed: 600, targetSpeed: v) == v)
+    #expect(GoalPace.speed(goal: nil, distance: 10, elapsed: 600, targetSpeed: v) == v)
+}

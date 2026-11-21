@@ -11,6 +11,7 @@ struct ContentView: View {
         NavigationStack {
             VStack(spacing: 20) {
                 targetCard
+                goalRow
                 clickCard
                 if run.state == .running { liveGrid }
                 Spacer(minLength: 0)
@@ -55,6 +56,51 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 16))
         .accessibilityHint("Change the target pace")
+    }
+
+    static let goals: [(String, Double)] = [
+        ("400 m", 400), ("800 m", 800), ("1 km", 1000), ("1 mile", 1609.344), ("2 miles", 3218.688),
+        ("5 km", 5000), ("10 km", 10000), ("Half marathon", 21097.5), ("Marathon", 42195),
+    ]
+
+    private func goalName(_ m: Double) -> String {
+        Self.goals.first { abs($0.1 - m) < 0.5 }?.0 ?? String(format: "%.2f %@", m / run.unit.meters, run.unit.short)
+    }
+
+    private func clock(_ s: Double) -> String {
+        let t = Int(s.rounded())
+        return t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60)
+    }
+
+    /// Goal distance: the click then aims for the whole distance at the target pace.
+    private var goalRow: some View {
+        @Bindable var run = run
+        return HStack {
+            Menu {
+                Picker("Goal", selection: $run.goalMeters) {
+                    Text("No goal").tag(0.0)
+                    ForEach(Self.goals, id: \.1) { Text($0.0).tag($0.1) }
+                }
+            } label: {
+                Label(run.goal.map { "\(goalName($0)) in \(clock($0 / run.targetSpeed))" } ?? "Goal distance",
+                      systemImage: "flag.checkered")
+            }
+            .disabled(run.state != .idle)
+            Spacer()
+            if run.state == .running, let g = run.goal {
+                if run.distance >= g {
+                    Text("goal reached").foregroundStyle(.green)
+                } else {
+                    let left = (g - run.distance) / run.unit.meters
+                    let b = run.behind ?? 0
+                    Text(String(format: "%.2f %@ · ", left, run.unit.short) + (abs(b) < 3 ? "on time" : "\(Int(abs(b).rounded())) s \(b > 0 ? "behind" : "ahead")"))
+                        .monospacedDigit()
+                        .foregroundStyle(abs(b) < 3 ? .green : (b > 0 ? .orange : .blue))
+                }
+            }
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 4)
     }
 
     private var clickCard: some View {

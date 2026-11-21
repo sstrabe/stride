@@ -122,3 +122,25 @@ struct CadenceGovernor {
     /// Jump straight to the tempo (used when the target pace changes before a run).
     mutating func set(_ c: Double) { cadence = min(max(c, range.lowerBound), range.upperBound) }
 }
+
+/// A goal distance at the target pace: the speed the rest of the run needs so the whole
+/// distance comes in at the target pace's total time. Behind schedule it asks for a bit more,
+/// ahead a bit less, within `band` of the target speed (it never asks for a sprint).
+enum GoalPace {
+    static let band = 0.12
+
+    /// Seconds behind the target pace's schedule at this point (negative: ahead).
+    static func behind(distance: Double, elapsed: TimeInterval, targetSpeed: Double) -> Double {
+        guard targetSpeed > 0 else { return 0 }
+        return elapsed - distance / targetSpeed
+    }
+
+    /// The speed to aim for now; the plain target once the goal is reached (or with no goal).
+    static func speed(goal: Double?, distance: Double, elapsed: TimeInterval, targetSpeed: Double) -> Double {
+        guard let goal, goal > 0, distance < goal, targetSpeed > 0 else { return targetSpeed }
+        let timeLeft = goal / targetSpeed - elapsed
+        let lo = targetSpeed * (1 - band), hi = targetSpeed * (1 + band)
+        guard timeLeft > 1 else { return hi }
+        return min(max((goal - distance) / timeLeft, lo), hi)
+    }
+}

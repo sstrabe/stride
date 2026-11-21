@@ -86,6 +86,12 @@ struct WatchRunView: View {
                     }
                 }
                 .font(.footnote)
+                if let left = st?.goalRemaining {
+                    let b = st?.behind ?? 0
+                    Text(String(format: "%.2f %@ · ", left / unit.meters, unit.short) + (abs(b) < 3 ? "on time" : "\(Int(abs(b).rounded()))s \(b > 0 ? "behind" : "ahead")"))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(abs(b) < 3 ? .green : (b > 0 ? .orange : .blue))
+                }
                 if !w.phoneConnected { Text("iPhone not connected").font(.footnote).foregroundStyle(.orange) }
                 HStack {
                     Button(st?.holding == true ? "Release" : "Hold") { w.setHold(!(st?.holding ?? false)) }

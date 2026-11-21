@@ -11,6 +11,8 @@ struct RunStatus: Codable, Sendable, Equatable {
     var distance: Double          // metres
     var elapsed: TimeInterval
     var holding: Bool
+    var goalRemaining: Double? = nil  // metres left to the goal distance (nil: no goal or reached)
+    var behind: Double? = nil         // seconds behind the goal schedule (negative: ahead)
 }
 
 enum RemoteMessage: Codable, Sendable {
