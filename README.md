@@ -27,6 +27,12 @@ click (steps/min) = target speed (m/s) × 60 ÷ step length (m)
   pace. Behind schedule it asks for up to 12% more speed, ahead up to 12% less
   (`GoalPace`); after the goal it goes back to the plain target. The iPhone and the Watch show
   what's left and how far ahead or behind you are.
+- **Heart-rate mode** (Pace | Heart rate on the main screen; needs Stride on Apple Watch): for
+  easy runs. Set a ceiling (e.g. 150 bpm); the target pace is only where the click starts. The
+  speed it aims for drifts down while the heart rate is over the ceiling and up while it's more
+  than 6 under (`HeartRateGovernor`, slow because heart rate lags). If the click is at its lowest
+  and the heart rate stays 5+ over for 30 s, the click goes quiet and a voice says to walk; it
+  says to run again once the heart rate is 12 under.
 - **Health and Fitness**:
   - *iPhone only* (default): a HealthKit workout session on the iPhone (iOS 26). It records an
     outdoor run with its GPS route, distance, active energy, and a running stride length sample
