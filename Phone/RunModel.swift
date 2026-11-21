@@ -399,7 +399,7 @@ final class RunModel: NSObject {
             watchDistance = d; watchSteps = s; lastWatchTotals = Date()
             estimator.add(.init(time: Date().timeIntervalSinceReferenceDate, distance: d, steps: s, source: .watch))
             update()
-        case .status: break
+        case .status, .discard: break
         }
     }
 
