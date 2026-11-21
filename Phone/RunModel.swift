@@ -8,6 +8,8 @@ import Observation
 @Observable
 final class RunModel: NSObject {
     enum State: Equatable { case idle, starting, running, finishing }
+    /// Who records the run in Health.
+    enum Recording: String, CaseIterable { case phone, watch, workoutApp }
 
     // MARK: settings (kept in UserDefaults)
     var targetSeconds: Double = 502 { didSet { saveSettings(); targetChanged() } }
@@ -16,7 +18,7 @@ final class RunModel: NSObject {
     var maxCadence: Double = 200 { didSet { saveSettings(); rangeChanged() } }
     var startCadence: Double = 170 { didSet { saveSettings(); targetChanged() } }
     var volume: Double = 0.8 { didSet { metronome.volume = Float(volume); saveSettings() } }
-    var useWatch: Bool = false { didSet { saveSettings() } }
+    var recording: Recording = .phone { didSet { saveSettings() } }
 
     // MARK: live
     private(set) var state: State = .idle
@@ -113,7 +115,12 @@ final class RunModel: NSObject {
         message = nil
         stopPreview()
         resetLive()
-        if useWatch && Health.available {
+        if recording == .workoutApp {
+            // Apple's Workout app on the Watch records the run; Stride starts no workout of its
+            // own (a second one would end the Watch's or double the run in Fitness) and only clicks.
+            recordingOn = "Workout app records the run"
+            beginSensors(at: Date())
+        } else if recording == .watch && Health.available {
             do {
                 try await health.startOnWatch()
                 recordingOn = "Waiting for Apple Watch…"
@@ -198,6 +205,8 @@ final class RunModel: NSObject {
         if discard {
             health.discard()
             recordingOn = "Discarded"
+        } else if recording == .workoutApp && health.session == nil {
+            recordingOn = "Click only: end the run in the Workout app"
         } else {
             recordingOn = await health.finish(at: end, summary: .init(distance: distance, strides: strides, speeds: speeds,
                                                                       targetSecondsPerUnit: targetSeconds, unit: unit))
@@ -343,7 +352,8 @@ final class RunModel: NSObject {
         if d.object(forKey: "maxCadence") != nil { maxCadence = d.double(forKey: "maxCadence") }
         if d.object(forKey: "startCadence") != nil { startCadence = d.double(forKey: "startCadence") }
         if d.object(forKey: "volume") != nil { volume = d.double(forKey: "volume") }
-        useWatch = d.bool(forKey: "useWatch")
+        if let r = d.string(forKey: "recording").flatMap(Recording.init(rawValue:)) { recording = r }
+        else if d.bool(forKey: "useWatch") { recording = .watch }
     }
 
     private func saveSettings() {
@@ -351,7 +361,7 @@ final class RunModel: NSObject {
         let d = defaults
         d.set(targetSeconds, forKey: "targetSeconds"); d.set(unit.rawValue, forKey: "unit")
         d.set(minCadence, forKey: "minCadence"); d.set(maxCadence, forKey: "maxCadence")
-        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(useWatch, forKey: "useWatch")
+        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording")
     }
 }
 

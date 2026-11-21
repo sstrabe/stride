@@ -27,11 +27,15 @@ click (steps/min) = target speed (m/s) × 60 ÷ step length (m)
   - *iPhone only* (default): a HealthKit workout session on the iPhone (iOS 26). It records an
     outdoor run with its GPS route, distance, active energy, and a running stride length sample
     for each minute.
-  - *Record on Apple Watch* (Settings): the iPhone starts the Watch app, and the Watch runs the
+  - *Stride on Apple Watch* (Settings, Record with): the iPhone starts the Watch app, and the Watch runs the
     workout and mirrors it to the iPhone. You get rings and heart rate, and the workout lands in
     Fitness. The iPhone still measures and clicks. The Watch shows the click tempo, target and
     current pace, heart rate and time. Turn the Digital Crown to change the target pace. You can
     also start a run on the Watch itself.
+  - *Workout app on Watch*: start the run in Apple's Workout app, then Start in Stride. Stride
+    starts no workout of its own (a second one on the Watch would end the Workout app's, one on
+    the iPhone would put the run in Fitness twice) and only clicks; the Workout app records
+    everything. Stride can't read that session, so the Watch shows no click tempo.
 
 ## Layout
 

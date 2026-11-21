@@ -230,9 +230,17 @@ struct SettingsView: View {
                     Text("The click starts at the cadence your target pace needs at your usual step length in Apple Health (stride length and speed from your past runs); without Health data, at the start tempo. Once your stride is measured it moves to the cadence your target pace needs at that stride, at most 3 spm per 10 seconds.")
                 }
                 Section {
-                    Toggle("Record on Apple Watch", isOn: $run.useWatch)
-                } footer: {
-                    Text("The Watch records the workout (heart rate, rings) and shows the click tempo; the iPhone plays the click. Off: the iPhone records the run to Health and Fitness.")
+                    Picker("Record with", selection: $run.recording) {
+                        Text("iPhone").tag(RunModel.Recording.phone)
+                        Text("Stride on Apple Watch").tag(RunModel.Recording.watch)
+                        Text("Workout app on Watch").tag(RunModel.Recording.workoutApp)
+                    }
+                } header: { Text("Recording") } footer: {
+                    switch run.recording {
+                    case .phone: Text("The iPhone records the run to Health and Fitness.")
+                    case .watch: Text("Stride's Watch app records the workout (heart rate, rings) and shows the click tempo; the iPhone plays the click.")
+                    case .workoutApp: Text("Start the run in the Workout app on your Watch, then Start here. The Workout app records it; Stride only clicks.")
+                    }
                 }
             }
             .navigationTitle("Settings")
