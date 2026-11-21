@@ -95,7 +95,10 @@ it isn't used.
 
 `Design/icon.svg` is the source. It's rendered to `Design/icon-1024.png` with
 `rsvg-convert -w 1024 -h 1024 -b "#E5341D"` (opaque: iOS refuses alpha), then copied into
-`Design/PhoneIcon.xcassets` and `Design/WatchIcon.xcassets`. actool needs a simulator runtime, and
+`Design/PhoneIcon.xcassets` and `Design/WatchIcon.xcassets`. The iPhone also has a dark and a tinted
+variant (`icon-dark.svg`, `icon-tinted.svg`: no background, iOS draws its own), rendered without
+`-b` to `icon-dark-1024.png` / `icon-tinted-1024.png` and copied in as `icon-dark.png` /
+`icon-tinted.png`. Watch icons have no appearances (always on black). actool needs a simulator runtime, and
 the build Mac keeps none (disk), so the `icons` workflow compiles both catalogs on GitHub. Run it,
 download its artifact, and commit `Assets.car` (plus the iPhone's `AppIcon60x60@2x.png`) to
 `Phone/Icon/` and `Watch/Icon/`.

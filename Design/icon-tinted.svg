@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF9F1C"/>
+      <stop offset="1" stop-color="#E5341D"/>
+    </linearGradient>
+    <linearGradient id="win" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3A3A3A"/>
+      <stop offset="1" stop-color="#202020"/>
+    </linearGradient>
+  </defs>
+  
+  <g transform="translate(512 540) scale(0.86) translate(-512 -540)">
+  <!-- swing marks: the beat -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="30" stroke-linecap="round" opacity="0.55">
+    <path d="M 744 214 A 330 330 0 0 1 812 330"/>
+    <path d="M 280 214 A 330 330 0 0 0 212 330"/>
+  </g>
+  <!-- metronome body -->
+  <path d="M 452 150 L 572 150 Q 598 150 604 176 L 772 826 Q 780 860 744 860 L 280 860 Q 244 860 252 826 L 420 176 Q 426 150 452 150 Z" fill="#FFFFFF"/>
+  <!-- window -->
+  <path d="M 476 262 L 548 262 L 668 742 L 356 742 Z" fill="url(#win)" stroke="url(#win)" stroke-width="24" stroke-linejoin="round"/>
+  <!-- pendulum, swung right: dark rim so it reads over the white body too -->
+  <line x1="512" y1="742" x2="660" y2="236" stroke="#202020" stroke-width="72" stroke-linecap="round"/>
+  <rect x="550" y="404" width="136" height="108" rx="30" fill="#202020" transform="rotate(16.3 618 458)"/>
+  <line x1="512" y1="742" x2="660" y2="236" stroke="#FFFFFF" stroke-width="40" stroke-linecap="round"/>
+  <rect x="566" y="420" width="104" height="76" rx="18" fill="#FFFFFF" transform="rotate(16.3 618 458)"/>
+  <circle cx="512" cy="742" r="34" fill="#FFFFFF"/>
+  <!-- base -->
+  <rect x="216" y="884" width="592" height="40" rx="20" fill="#FFFFFF" opacity="0.9"/>
+  </g>
+</svg>
