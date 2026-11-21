@@ -37,6 +37,29 @@ click (steps/min) = target speed (m/s) × 60 ÷ step length (m)
     the iPhone would put the run in Fitness twice) and only clicks; the Workout app records
     everything. Stride can't read that session, so the Watch shows no click tempo.
 
+- **What a Watch run saves** (matched against an export of Apple's Workout app runs, 2026-11-21):
+  heart rate, active and basal energy, distance, running form (power, stride length, ground
+  contact time, vertical oscillation, speed: the live data source collects them once
+  authorized), the GPS route with altitude, elevation ascended/descended, km and mile splits as
+  two series of segment events, time zone, indoor/outdoor. Not matched: weather (needs
+  WeatherKit, a paid account) and average METs. Physical effort and VO₂ max come from the Watch
+  itself. The iPhone-only mode saves the same minus heart rate and running form.
+
+## Diagnostics
+
+- **Run log**: every run, in every mode, writes `Documents/diagnostics/run-<epoch>.json` on the
+  iPhone: settings, events (mirroring, splits, the Watch's own report lines) and one row per
+  second (click, wanted tempo, step length, cadence, speed, distance, GPS, heart rate).
+- **Watch report**: the Watch sends authorization gaps, the types it collects, route points and
+  splits to the iPhone's log, puts the last 30 lines in the workout's `StrideDiag` metadata, and
+  resends the previous run's finish result at the next start.
+- **Health export**: Settings → Export diagnostics, or the `-export` launch argument, dumps the
+  last 3 days of workouts from every app (statistics, events, metadata, samples by source,
+  routes) to `Documents/diagnostics/export-<epoch>.json`. Pull everything over USB:
+  `xcrun devicectl device copy from --device <id> --domain-type appDataContainer
+  --domain-identifier dev.sstrabe.stride --source Documents/diagnostics --destination <dir>`.
+  Also visible in Files → On My iPhone → Stride.
+
 ## Layout
 
 | | |
