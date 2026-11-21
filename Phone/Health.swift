@@ -42,11 +42,8 @@ final class Health: NSObject {
             HKQuantityType(.distanceWalkingRunning), HKQuantityType(.activeEnergyBurned),
             HKQuantityType(.runningStrideLength), HKQuantityType(.runningSpeed),
         ]
-        let read: Set<HKObjectType> = [
-            .workoutType(), HKQuantityType(.heartRate), HKQuantityType(.distanceWalkingRunning),
-            HKQuantityType(.activeEnergyBurned),
-            HKQuantityType(.runningStrideLength), HKQuantityType(.runningSpeed),
-        ]
+        // everything a run can carry (Export reads it all back for diagnostics)
+        let read = Export.readTypes
         try? await store.requestAuthorization(toShare: share, read: read)
     }
 

@@ -211,6 +211,8 @@ struct PacePicker: View {
 struct SettingsView: View {
     @Environment(RunModel.self) private var run
     @Environment(\.dismiss) private var dismiss
+    @State private var exporting = false
+    @State private var shareItems: [URL]?
 
     var body: some View {
         @Bindable var run = run
@@ -241,6 +243,21 @@ struct SettingsView: View {
                     case .watch: Text("Stride's Watch app records the workout (heart rate, rings) and shows the click tempo; the iPhone plays the click.")
                     case .workoutApp: Text("Start the run in the Workout app on your Watch, then Start here. The Workout app records it; Stride only clicks.")
                     }
+                }
+                Section {
+                    Button(exporting ? "Exporting…" : "Export diagnostics") {
+                        exporting = true
+                        Task {
+                            if let u = await Export.run() { shareItems = [u] + RunLog.list().suffix(5) }
+                            exporting = false
+                        }
+                    }
+                    .disabled(exporting)
+                    if let items = shareItems {
+                        ShareLink(items: items) { Label("Share \(items.count) files", systemImage: "square.and.arrow.up") }
+                    }
+                } footer: {
+                    Text("Recent workouts from Health (every app) and Stride's run logs, as JSON. Also in Files → On My iPhone → Stride.")
                 }
             }
             .navigationTitle("Settings")

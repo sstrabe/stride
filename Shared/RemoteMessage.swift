@@ -18,6 +18,7 @@ enum RemoteMessage: Codable, Sendable {
     case setTarget(Double)            // watch -> phone: new target pace (seconds per unit)
     case setHold(Bool)                // watch -> phone
     case heartRate(Double)            // watch -> phone
+    case diag(String)                 // watch -> phone: a line for the iPhone's run log
 
     func encoded() -> Data? { try? JSONEncoder().encode(self) }
     static func decode(_ d: Data) -> RemoteMessage? { try? JSONDecoder().decode(RemoteMessage.self, from: d) }

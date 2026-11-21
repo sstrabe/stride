@@ -72,6 +72,7 @@ final class RunModel: NSObject {
     private var lastStrideMinute: Date?
     private var lastStatusSent = Date.distantPast
     private let defaults = UserDefaults.standard
+    private let log = RunLog()
 
     override init() {
         super.init()
@@ -156,6 +157,7 @@ final class RunModel: NSObject {
     }
 
     private func mirrorStarted() {
+        log.event("mirror started (state \(state))")
         // The Watch runs the workout (started from here or on the Watch itself).
         if state == .running && !health.isMirrored { return }
         recordingOn = "Recording on Apple Watch"
@@ -164,6 +166,7 @@ final class RunModel: NSObject {
     }
 
     private func mirrorEnded() {
+        log.event("mirror ended")
         guard state == .running else { return }
         Task { await stop() }
     }
@@ -171,6 +174,16 @@ final class RunModel: NSObject {
     private func beginSensors(at date: Date) {
         startDate = date
         state = .running
+        log.begin([
+            "recording": recording.rawValue, "recordingOn": recordingOn, "mirrored": health.isMirrored,
+            "targetSecondsPerUnit": targetSeconds, "unit": unit.rawValue, "targetSpeed": targetSpeed,
+            "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
+            "openingCadence": openingCadence, "healthStride": healthStride.map { [$0.stride, $0.bySpeed] as [Any] as Any } ?? NSNull(),
+            "healthPoints": healthPoints.count, "workoutStart": Export.iso(date),
+            "app": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "",
+            "pedometer": CMPedometer.isStepCountingAvailable(), "locationAuth": location.authorizationStatus.rawValue,
+        ])
+        if let message { log.event("message: \(message)") }
         location.allowsBackgroundLocationUpdates = true
         location.showsBackgroundLocationIndicator = true
         location.startUpdatingLocation()
@@ -185,7 +198,7 @@ final class RunModel: NSObject {
         governor = CadenceGovernor(targetSpeed: targetSpeed, startCadence: openingCadence, range: minCadence...maxCadence)
         clickCadence = governor.cadence
         metronome.bpm = clickCadence
-        do { try metronome.start() } catch { message = "Audio: \(error.localizedDescription)" }
+        do { try metronome.start() } catch { message = "Audio: \(error.localizedDescription)"; log.event("audio failed: \(error)") }
         tick = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.update() }
         }
@@ -211,6 +224,8 @@ final class RunModel: NSObject {
             recordingOn = await health.finish(at: end, summary: .init(distance: distance, strides: strides, speeds: speeds,
                                                                       targetSecondsPerUnit: targetSeconds, unit: unit))
         }
+        log.end(["result": recordingOn, "discarded": discard, "distance": distance,
+                 "strideSamples": strides.count, "speedSamples": speeds.count])
         state = .idle
     }
 
@@ -280,6 +295,9 @@ final class RunModel: NSObject {
         if let v = currentSpeed, v > 0.5 { speedBucket.append(v) }
         flushStride(force: false)
         sendStatus(force: false)
+        log.row([clickCadence, wantedCadence, stepLength, measuredCadence, currentSpeed, distance, gpsGood,
+                 gpsDistance, pedoSteps, pedoDistance, heartRate, holding,
+                 lastLocation?.horizontalAccuracy, lastLocation?.altitude])
     }
 
     /// One running-stride-length sample per minute for Health.
@@ -323,9 +341,10 @@ final class RunModel: NSObject {
 
     private func handle(_ m: RemoteMessage) {
         switch m {
-        case .setTarget(let s): targetSeconds = min(max(s, 150), 1200)
-        case .setHold(let h): holding = h
+        case .setTarget(let s): targetSeconds = min(max(s, 150), 1200); log.event("watch target \(s)")
+        case .setHold(let h): holding = h; log.event("watch hold \(h)")
         case .heartRate(let hr): heartRate = hr
+        case .diag(let s): log.event("watch: \(s)")
         case .status: break
         }
     }

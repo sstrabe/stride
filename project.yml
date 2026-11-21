@@ -35,6 +35,9 @@ targets:
       properties:
         # audio: the click keeps playing with the screen off; location: GPS pace in the pocket
         UIBackgroundModes: [audio, location]
+        # diagnostics (run logs, Health exports) visible in Files and pullable with devicectl
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         CFBundleIcons: { CFBundlePrimaryIcon: { CFBundleIconName: AppIcon, CFBundleIconFiles: [AppIcon60x60] } }
     settings:
       base:

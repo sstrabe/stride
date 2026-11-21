@@ -6,7 +6,10 @@ struct StrideApp: App {
     // system hands us a session from the Watch.
     @State private var run = RunModel()
 
-    init() { if SelfTest.requested { SelfTest.run() } }
+    init() {
+        if SelfTest.requested { SelfTest.run() }
+        if Export.requested { Task { await Export.run() } }
+    }
 
     var body: some Scene {
         WindowGroup {
