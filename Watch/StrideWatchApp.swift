@@ -101,6 +101,7 @@ struct WatchRunView: View {
         }
         .confirmationDialog("End run?", isPresented: $confirmEnd) {
             Button("End and save") { w.end() }
+            Button("Discard run", role: .destructive) { w.discard() }
         }
     }
 

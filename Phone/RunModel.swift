@@ -14,7 +14,7 @@ final class RunModel: NSObject {
     // MARK: settings (kept in UserDefaults)
     var targetSeconds: Double = 502 { didSet { saveSettings(); targetChanged() } }
     var unit: DistanceUnit = .mile { didSet { if oldValue != unit && !loading { convertTarget(from: oldValue) }; saveSettings() } }
-    var minCadence: Double = 150 { didSet { saveSettings(); rangeChanged() } }
+    var minCadence: Double = 140 { didSet { saveSettings(); rangeChanged() } }
     var maxCadence: Double = 200 { didSet { saveSettings(); rangeChanged() } }
     var startCadence: Double = 170 { didSet { saveSettings(); targetChanged() } }
     var volume: Double = 1 { didSet { metronome.volume = Float(volume); saveSettings() } }
@@ -424,6 +424,9 @@ final class RunModel: NSObject {
         if d.object(forKey: "targetSeconds") != nil { targetSeconds = d.double(forKey: "targetSeconds") }
         if let u = d.string(forKey: "unit").flatMap(DistanceUnit.init(rawValue:)) { unit = u }
         if d.object(forKey: "minCadence") != nil { minCadence = d.double(forKey: "minCadence") }
+        // the old default of 150 sat above easy paces (10:00/mi at 1.16 m steps needs ~139)
+        if !d.bool(forKey: "minCadence140"), minCadence == 150 { minCadence = 140; d.set(140.0, forKey: "minCadence") }
+        d.set(true, forKey: "minCadence140")
         if d.object(forKey: "maxCadence") != nil { maxCadence = d.double(forKey: "maxCadence") }
         if d.object(forKey: "startCadence") != nil { startCadence = d.double(forKey: "startCadence") }
         if d.object(forKey: "volume") != nil { volume = d.double(forKey: "volume") }

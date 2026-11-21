@@ -173,6 +173,13 @@ final class Health: NSObject {
 
     /// Throws the run away (nothing saved).
     func discard() {
+        if isMirrored, let s = session, let d = RemoteMessage.discard.encoded() {
+            // The Watch owns the workout: ending the mirror would make it save the run. Ask it to
+            // throw the run away (it ends the session itself); end here only if it can't be told.
+            Task { do { try await s.sendToRemoteWorkoutSession(data: d) } catch { s.end() } }
+            session = nil; builder = nil; routeBuilder = nil; isMirrored = false
+            return
+        }
         session?.end()
         builder?.discardWorkout()
         routeBuilder?.discard()

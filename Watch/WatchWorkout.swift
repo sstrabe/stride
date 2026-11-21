@@ -27,6 +27,7 @@ final class WatchWorkout: NSObject {
     @ObservationIgnored private var lastDiag = Date.distantPast
     @ObservationIgnored private var outdoor = true
     @ObservationIgnored private var diagLines: [String] = []
+    @ObservationIgnored private var discarding = false
 
     private(set) var running = false
     private(set) var startDate: Date?
@@ -56,6 +57,7 @@ final class WatchWorkout: NSObject {
         guard !running else { return }
         message = nil; saved = nil
         diagLines = []
+        discarding = false
         outdoor = config.locationType != .indoor
         // started from the iPhone, the run view's request may not have happened yet
         if outdoor, location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
@@ -105,6 +107,12 @@ final class WatchWorkout: NSObject {
     }
 
     func end() { session?.end() }
+
+    /// Ends the run without saving it (from the Watch's End menu or the iPhone's Discard).
+    func discard() {
+        discarding = true
+        session?.end()
+    }
 
     func setTarget(_ seconds: Double) { send(.setTarget(seconds)) }
     func setHold(_ hold: Bool) { send(.setHold(hold)) }
@@ -168,6 +176,15 @@ final class WatchWorkout: NSObject {
         location.stopUpdatingLocation()
         location.allowsBackgroundLocationUpdates = false
         flushRoute()
+        if discarding {
+            b.discardWorkout()
+            routeBuilder?.discard()
+            saved = "Discarded"
+            UserDefaults.standard.set("\(ISO8601DateFormatter().string(from: date)) discarded", forKey: "lastFinish")
+            session = nil; builder = nil; routeBuilder = nil
+            running = false; phoneConnected = false
+            return
+        }
         var report: [String] = []
         do {
             try await b.addWorkoutEvents(splits.finish(at: date).map(Self.event))
@@ -227,7 +244,13 @@ extension WatchWorkout: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate {
         let msgs = data.compactMap(RemoteMessage.decode)
         Task { @MainActor in
             self.phoneConnected = true
-            for m in msgs { if case .status(let st) = m { self.status = st } }
+            for m in msgs {
+                switch m {
+                case .status(let st): self.status = st
+                case .discard: self.discard()
+                default: break
+                }
+            }
         }
     }
 
