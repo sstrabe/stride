@@ -99,7 +99,7 @@ enum Export {
             "source": w.sourceRevision.source.name,
             "bundle": w.sourceRevision.source.bundleIdentifier,
             "sourceVersion": w.sourceRevision.version ?? "",
-            "os": w.sourceRevision.operatingSystemVersion.description,
+            "os": { let v = w.sourceRevision.operatingSystemVersion; return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" }(),
             "device": [w.device?.name, w.device?.model, w.device?.hardwareVersion, w.device?.softwareVersion]
                 .map { $0 ?? "" },
             "metadata": (w.metadata ?? [:]).mapValues(plain),
