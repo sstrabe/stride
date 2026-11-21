@@ -80,6 +80,7 @@ targets:
         INFOPLIST_KEY_NSHealthShareUsageDescription: Stride reads your heart rate and workouts during a run.
         INFOPLIST_KEY_NSHealthUpdateUsageDescription: Stride saves your runs to Apple Health and Fitness.
         INFOPLIST_KEY_NSMotionUsageDescription: Stride counts your steps to work out your stride length.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Stride maps your run and measures its elevation with the Watch's GPS.
   StrideTests:
     type: bundle.unit-test
     platform: iOS

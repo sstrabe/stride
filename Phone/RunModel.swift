@@ -19,6 +19,7 @@ final class RunModel: NSObject {
     var startCadence: Double = 170 { didSet { saveSettings(); targetChanged() } }
     var volume: Double = 0.8 { didSet { metronome.volume = Float(volume); saveSettings() } }
     var recording: Recording = .phone { didSet { saveSettings() } }
+    var outdoor: Bool = true { didSet { saveSettings() } }
 
     // MARK: live
     private(set) var state: State = .idle
@@ -73,6 +74,10 @@ final class RunModel: NSObject {
     private var lastStatusSent = Date.distantPast
     private let defaults = UserDefaults.standard
     private let log = RunLog()
+    private var splitTracker = SplitTracker(start: Date())
+    private var splitList: [SplitTracker.Split] = []
+    private var elevation = ElevationTracker()
+    private var routePoints = 0
 
     override init() {
         super.init()
@@ -123,7 +128,7 @@ final class RunModel: NSObject {
             beginSensors(at: Date())
         } else if recording == .watch && Health.available {
             do {
-                try await health.startOnWatch()
+                try await health.startOnWatch(outdoor: outdoor)
                 recordingOn = "Waiting for Apple Watch…"
                 // mirrorStarted() takes it from here; fall back if the Watch doesn't answer
                 try? await Task.sleep(for: .seconds(12))
@@ -144,7 +149,7 @@ final class RunModel: NSObject {
         let now = Date()
         if Health.available {
             do {
-                try await health.startOnPhone(at: now)
+                try await health.startOnPhone(at: now, outdoor: outdoor)
                 recordingOn = "Recording on iPhone"
             } catch {
                 recordingOn = "Not recording in Health"
@@ -174,8 +179,9 @@ final class RunModel: NSObject {
     private func beginSensors(at date: Date) {
         startDate = date
         state = .running
+        splitTracker = SplitTracker(start: date); splitList = []; elevation = ElevationTracker(); routePoints = 0
         log.begin([
-            "recording": recording.rawValue, "recordingOn": recordingOn, "mirrored": health.isMirrored,
+            "recording": recording.rawValue, "outdoor": outdoor, "recordingOn": recordingOn, "mirrored": health.isMirrored,
             "targetSecondsPerUnit": targetSeconds, "unit": unit.rawValue, "targetSpeed": targetSpeed,
             "minCadence": minCadence, "maxCadence": maxCadence, "startCadence": startCadence,
             "openingCadence": openingCadence, "healthStride": healthStride.map { [$0.stride, $0.bySpeed] as [Any] as Any } ?? NSNull(),
@@ -186,7 +192,8 @@ final class RunModel: NSObject {
         if let message { log.event("message: \(message)") }
         location.allowsBackgroundLocationUpdates = true
         location.showsBackgroundLocationIndicator = true
-        location.startUpdatingLocation()
+        // indoors GPS only adds noise: distance comes from the step counter then
+        if outdoor { location.startUpdatingLocation() }
         if CMPedometer.isStepCountingAvailable() {
             pedometer.startUpdates(from: date) { [weak self] data, _ in
                 guard let data else { return }
@@ -221,10 +228,13 @@ final class RunModel: NSObject {
         } else if recording == .workoutApp && health.session == nil {
             recordingOn = "Click only: end the run in the Workout app"
         } else {
-            recordingOn = await health.finish(at: end, summary: .init(distance: distance, strides: strides, speeds: speeds,
-                                                                      targetSecondsPerUnit: targetSeconds, unit: unit))
+            recordingOn = await health.finish(at: end, summary: .init(
+                distance: distance, strides: strides, speeds: speeds, targetSecondsPerUnit: targetSeconds, unit: unit,
+                outdoor: outdoor, splits: splitList + splitTracker.finish(at: end),
+                ascended: elevation.ascended, descended: elevation.descended, routePoints: routePoints))
         }
-        log.end(["result": recordingOn, "discarded": discard, "distance": distance,
+        log.end(["result": recordingOn, "discarded": discard, "distance": distance, "routePoints": routePoints,
+                 "ascended": elevation.ascended, "descended": elevation.descended, "splits": splitList.count,
                  "strideSamples": strides.count, "speedSamples": speeds.count])
         state = .idle
     }
@@ -268,6 +278,7 @@ final class RunModel: NSObject {
             lastLocation = l
             lastGoodFix = Date()
             routeBuffer.append(l)
+            elevation.add(altitude: l.altitude, verticalAccuracy: l.verticalAccuracy)
         }
         gpsGood = lastGoodFix.map { Date().timeIntervalSince($0) < 5 } ?? false
         if routeBuffer.count >= 20 { flushRoute() }
@@ -275,7 +286,7 @@ final class RunModel: NSObject {
 
     private func flushRoute() {
         guard !routeBuffer.isEmpty else { return }
-        health.addRoute(routeBuffer)
+        if outdoor { health.addRoute(routeBuffer); routePoints += routeBuffer.count }
         routeBuffer.removeAll()
     }
 
@@ -288,6 +299,9 @@ final class RunModel: NSObject {
         measuredCadence = estimator.cadence
         currentSpeed = estimator.speed ?? (gpsGood ? lastLocation.map { max(0, $0.speed) } : nil)
         distance = gpsDistance > 0 ? max(gpsDistance, 0) : pedoDistance
+        let done = splitTracker.add(distance: distance, at: Date())
+        for s in done { log.event("split \(s.unitMeters == 1000 ? "km" : "mi") \(s.index): \(Int(s.end.timeIntervalSince(s.start))) s") }
+        splitList += done
         wantedCadence = governor.desired(stepLength: stepLength)
         clickCadence = governor.update(stepLength: stepLength, time: Date().timeIntervalSinceReferenceDate, hold: holding)
         metronome.bpm = clickCadence
@@ -373,6 +387,7 @@ final class RunModel: NSObject {
         if d.object(forKey: "volume") != nil { volume = d.double(forKey: "volume") }
         if let r = d.string(forKey: "recording").flatMap(Recording.init(rawValue:)) { recording = r }
         else if d.bool(forKey: "useWatch") { recording = .watch }
+        if d.object(forKey: "outdoor") != nil { outdoor = d.bool(forKey: "outdoor") }
     }
 
     private func saveSettings() {
@@ -380,7 +395,7 @@ final class RunModel: NSObject {
         let d = defaults
         d.set(targetSeconds, forKey: "targetSeconds"); d.set(unit.rawValue, forKey: "unit")
         d.set(minCadence, forKey: "minCadence"); d.set(maxCadence, forKey: "maxCadence")
-        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording")
+        d.set(startCadence, forKey: "startCadence"); d.set(volume, forKey: "volume"); d.set(recording.rawValue, forKey: "recording"); d.set(outdoor, forKey: "outdoor")
     }
 }
 

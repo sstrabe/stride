@@ -38,8 +38,9 @@ struct WatchRunView: View {
     private var idleView: some View {
         VStack(spacing: 8) {
             Text("Stride").font(.headline)
-            Button("Start run") { Task { await w.start() } }
+            Button("Outdoor run") { Task { await w.start(RunTypes.configuration(outdoor: true)) } }
                 .buttonStyle(.borderedProminent).tint(.green)
+            Button("Indoor run") { Task { await w.start(RunTypes.configuration(outdoor: false)) } }
             Text("The iPhone plays the click").font(.footnote).foregroundStyle(.secondary)
             if let s = w.saved { Text(s).font(.footnote) }
             if let m = w.message { Text(m).font(.footnote).foregroundStyle(.orange) }

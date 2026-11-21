@@ -20,12 +20,6 @@ final class Health: NSObject {
 
     static var available: Bool { HKHealthStore.isHealthDataAvailable() }
 
-    static let configuration: HKWorkoutConfiguration = {
-        let c = HKWorkoutConfiguration()
-        c.activityType = .running
-        c.locationType = .outdoor
-        return c
-    }()
 
     override init() {
         super.init()
@@ -37,11 +31,8 @@ final class Health: NSObject {
 
     func requestAuthorization() async {
         guard Self.available else { return }
-        let share: Set<HKSampleType> = [
-            .workoutType(), HKSeriesType.workoutRoute(),
-            HKQuantityType(.distanceWalkingRunning), HKQuantityType(.activeEnergyBurned),
-            HKQuantityType(.runningStrideLength), HKQuantityType(.runningSpeed),
-        ]
+        // the Watch's list too: its prompt often defers to the iPhone
+        let share = RunTypes.share
         // everything a run can carry (Export reads it all back for diagnostics)
         let read = Export.readTypes
         try? await store.requestAuthorization(toShare: share, read: read)
@@ -70,9 +61,9 @@ final class Health: NSObject {
     // MARK: Watch
 
     /// Asks the Watch to start the run; it mirrors its session back here (attachMirrored).
-    func startOnWatch() async throws {
+    func startOnWatch(outdoor: Bool) async throws {
         try await withCheckedThrowingContinuation { (c: CheckedContinuation<Void, Error>) in
-            store.startWatchApp(with: Self.configuration) { ok, error in
+            store.startWatchApp(with: RunTypes.configuration(outdoor: outdoor)) { ok, error in
                 if ok { c.resume() } else { c.resume(throwing: error ?? CocoaError(.featureUnsupported)) }
             }
         }
@@ -97,14 +88,15 @@ final class Health: NSObject {
 
     // MARK: Phone
 
-    func startOnPhone(at date: Date) async throws {
-        let s = try HKWorkoutSession(healthStore: store, configuration: Self.configuration)
+    func startOnPhone(at date: Date, outdoor: Bool) async throws {
+        let config = RunTypes.configuration(outdoor: outdoor)
+        let s = try HKWorkoutSession(healthStore: store, configuration: config)
         let b = s.associatedWorkoutBuilder()
-        b.dataSource = HKLiveWorkoutDataSource(healthStore: store, workoutConfiguration: Self.configuration)
+        b.dataSource = HKLiveWorkoutDataSource(healthStore: store, workoutConfiguration: config)
         s.delegate = self
         b.delegate = self
         session = s; builder = b; isMirrored = false
-        routeBuilder = HKWorkoutRouteBuilder(healthStore: store, device: nil)
+        routeBuilder = outdoor ? HKWorkoutRouteBuilder(healthStore: store, device: nil) : nil
         s.startActivity(with: date)
         try await b.beginCollection(at: date)
     }
@@ -114,7 +106,12 @@ final class Health: NSObject {
         Task { try? await rb.insertRouteData(locations) }
     }
 
-    struct Summary { var distance: Double; var strides: [(Date, Double)]; var speeds: [(Date, Double)]; var targetSecondsPerUnit: Double; var unit: DistanceUnit }
+    struct Summary {
+        var distance: Double; var strides: [(Date, Double)]; var speeds: [(Date, Double)]
+        var targetSecondsPerUnit: Double; var unit: DistanceUnit
+        var outdoor: Bool; var splits: [SplitTracker.Split]; var ascended: Double; var descended: Double
+        var routePoints: Int
+    }
 
     /// Ends the run. Returns a line for the UI.
     func finish(at end: Date, summary: Summary) async -> String {
@@ -148,12 +145,25 @@ final class Health: NSObject {
                 samples.append(HKQuantitySample(type: speedType, quantity: q, start: date.addingTimeInterval(-60), end: date))
             }
             if !samples.isEmpty { try await b.addSamples(samples) }
-            try await b.addMetadata([
-                HKMetadataKeyIndoorWorkout: false,
+            // splits the way Apple's Workout app writes them: segment events per km and per mile
+            let events = summary.splits.filter { $0.end > start && $0.end <= end }.map {
+                HKWorkoutEvent(type: .segment, dateInterval: DateInterval(start: max($0.start, start), end: $0.end), metadata: nil)
+            }
+            if !events.isEmpty { try await b.addWorkoutEvents(events) }
+            var meta: [String: Any] = [
+                HKMetadataKeyIndoorWorkout: !summary.outdoor,
+                HKMetadataKeyTimeZone: TimeZone.current.identifier,
                 "StrideTargetPace": "\(Pace.format(summary.targetSecondsPerUnit)) \(summary.unit.paceSuffix)",
-            ])
+            ]
+            if summary.outdoor {
+                meta[HKMetadataKeyElevationAscended] = HKQuantity(unit: .meter(), doubleValue: summary.ascended)
+                meta[HKMetadataKeyElevationDescended] = HKQuantity(unit: .meter(), doubleValue: summary.descended)
+            }
+            try await b.addMetadata(meta)
             guard let workout = try await b.finishWorkout() else { return "Workout not saved" }
-            if let rb = routeBuilder { _ = try? await rb.finishRoute(with: workout, metadata: nil) }
+            if let rb = routeBuilder {
+                if summary.routePoints > 0 { _ = try? await rb.finishRoute(with: workout, metadata: nil) } else { rb.discard() }
+            }
             return "Saved to Health and Fitness"
         } catch {
             return "Health: \(error.localizedDescription)"

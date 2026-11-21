@@ -114,3 +114,26 @@ import Foundation
     #expect(r.points == [.init(speed: 3.0, stride: 1.1), .init(speed: 3.5, stride: 1.2)])
     #expect(r.unpaired == [1.3])
 }
+
+@Test func splitsPerKilometreAndMile() {
+    let t0 = Date(timeIntervalSince1970: 0)
+    var s = SplitTracker(start: t0)
+    var all: [SplitTracker.Split] = []
+    // 3.2 m/s, a reading every 10 s for 20 minutes (3840 m)
+    for i in 1...120 { all += s.add(distance: Double(i) * 32, at: t0.addingTimeInterval(Double(i) * 10)) }
+    let km = all.filter { $0.unitMeters == 1000 }, mi = all.filter { $0.unitMeters != 1000 }
+    #expect(km.count == 3 && mi.count == 2)
+    #expect(abs(km[0].end.timeIntervalSince(t0) - 312.5) < 0.01)   // 1000 m / 3.2 m/s
+    #expect(km[1].start == km[0].end)
+    let rest = s.finish(at: t0.addingTimeInterval(1200))
+    #expect(rest.count == 2 && rest.allSatisfy(\.partial))
+    #expect(rest.first { $0.unitMeters == 1000 }?.index == 4)
+}
+
+@Test func elevationIgnoresNoise() {
+    var e = ElevationTracker()
+    for i in 0..<200 { e.add(altitude: 100 + (i % 2 == 0 ? 1 : -1), verticalAccuracy: 5) }
+    #expect(e.ascended == 0)
+    for i in 0..<100 { e.add(altitude: 100 + Double(i) * 0.5, verticalAccuracy: 5) }   // climb ~50 m
+    #expect(e.ascended > 40 && e.ascended < 52)
+}
