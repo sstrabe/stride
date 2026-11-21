@@ -57,6 +57,8 @@ final class WatchWorkout: NSObject {
         message = nil; saved = nil
         diagLines = []
         outdoor = config.locationType != .indoor
+        // started from the iPhone, the run view's request may not have happened yet
+        if outdoor, location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
         do {
             let s = try HKWorkoutSession(healthStore: store, configuration: config)
             let b = s.associatedWorkoutBuilder()

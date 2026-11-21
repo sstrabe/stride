@@ -162,11 +162,11 @@ final class RunModel: NSObject {
     }
 
     private func mirrorStarted() {
-        log.event("mirror started (state \(state))")
         // The Watch runs the workout (started from here or on the Watch itself).
-        if state == .running && !health.isMirrored { return }
+        if state == .running && !health.isMirrored { log.event("mirror ignored: recording on iPhone"); return }
         recordingOn = "Recording on Apple Watch"
         if state != .running { resetLive(); beginSensors(at: health.builder?.startDate ?? Date()) }
+        log.event("mirror started")
         sendStatus(force: true)
     }
 
